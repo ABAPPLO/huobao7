@@ -163,10 +163,15 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 		return
 	}
 
-	// 获取drama的style信息
+	// 获取drama的style和分辨率信息
 	var drama models.Drama
 	if err := s.db.First(&drama, imageGen.DramaID).Error; err != nil {
 		s.log.Warnw("Failed to load drama for style", "error", err, "drama_id", imageGen.DramaID)
+	} else {
+		// 使用drama的长宽比设置
+		if drama.ImageAspectRatio != "" {
+			imageRatio = drama.ImageAspectRatio
+		}
 	}
 
 	s.db.Model(&imageGen).Update("status", models.ImageStatusProcessing)
@@ -256,6 +261,10 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 	}
 	if imageGen.Width != nil && imageGen.Height != nil {
 		opts = append(opts, image.WithDimensions(*imageGen.Width, *imageGen.Height))
+	} else if drama.ImageResolution != "" {
+		// 如果imageGen没有指定尺寸，使用drama的默认分辨率
+		opts = append(opts, image.WithSize(drama.ImageResolution))
+		s.log.Infow("Using drama image resolution", "id", imageGenID, "resolution", drama.ImageResolution)
 	}
 	// 添加参考图片
 	if len(referenceImages) > 0 {

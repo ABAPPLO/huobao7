@@ -6,6 +6,8 @@ export interface Prop {
     description?: string
     prompt?: string
     image_url?: string
+    local_path?: string
+    image_generation_status?: string
     reference_images?: any
     created_at: string
     updated_at: string

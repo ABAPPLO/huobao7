@@ -236,6 +236,11 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 	if videoGen.Seed != nil {
 		opts = append(opts, video.WithSeed(*videoGen.Seed))
 	}
+	// 使用drama的视频分辨率设置
+	if drama.VideoResolution != "" {
+		opts = append(opts, video.WithResolution(drama.VideoResolution))
+		s.log.Infow("Using drama video resolution", "id", videoGenID, "resolution", drama.VideoResolution)
+	}
 
 	// 根据参考图模式添加相应的选项，并将本地图片转换为base64
 	if videoGen.ReferenceMode != nil {

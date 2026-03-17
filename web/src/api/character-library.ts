@@ -79,7 +79,7 @@ export const characterLibraryAPI = {
 
   // AI生成角色形象
   generateCharacterImage(characterId: string, model?: string) {
-    return request.post<{ image_url: string }>(`/characters/${characterId}/generate-image`, {
+    return request.post<{ image_url: string; image_generation?: { id: number } }>(`/characters/${characterId}/generate-image`, {
       model
     })
   },

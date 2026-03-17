@@ -7,6 +7,9 @@ export interface Drama {
   description?: string
   genre?: string
   style?: string
+  image_aspect_ratio?: string  // 图片长宽比: 16:9 或 9:16
+  image_resolution?: string    // 图片分辨率: 2560x1440 或 1440x2560
+  video_resolution?: string    // 视频分辨率: 720p 或 1080p
   total_episodes: number
   total_duration: number
   total_scenes?: number
@@ -121,6 +124,9 @@ export interface CreateDramaRequest {
   description?: string
   genre?: string
   style?: string
+  image_aspect_ratio?: string  // 图片长宽比: 16:9 或 9:16
+  image_resolution?: string    // 图片分辨率
+  video_resolution?: string    // 视频分辨率: 720p 或 1080p
   tags?: string
 }
 
@@ -129,6 +135,9 @@ export interface UpdateDramaRequest {
   description?: string
   genre?: string
   style?: string
+  image_aspect_ratio?: string
+  image_resolution?: string
+  video_resolution?: string
   tags?: string
   status?: DramaStatus
 }

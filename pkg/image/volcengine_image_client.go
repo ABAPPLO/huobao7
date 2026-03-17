@@ -63,7 +63,7 @@ func NewVolcEngineImageClient(baseURL, apiKey, model, endpoint, queryEndpoint st
 
 func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption) (*ImageResult, error) {
 	options := &ImageOptions{
-		Size:    "1920x1920",
+		Size:    "2K",
 		Quality: "standard",
 	}
 
@@ -82,11 +82,28 @@ func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption
 	}
 
 	size := options.Size
-	if size == "" {
+	// 将像素尺寸转换为火山引擎格式
+	// 火山引擎 API 要求图片至少 3686400 像素
+	// 2K = 2560x2560 = 6,553,600 pixels
+	// 1K = 1024x1024 = 1,048,576 pixels (低于最低要求)
+	// 2560x1440 = 3,686,400 pixels (正好是最低要求)
+	// 1920x1080 = 2,073,600 pixels (低于最低要求，需要升级到 2K)
+	if size == "1920x1920" || size == "2048x2048" || size == "2560x2560" {
+		size = "2K"
+	} else if size == "2560x1440" || size == "1440x2560" {
+		// 16:9 和 9:16 的 2K 分辨率
+		size = "2K"
+	} else if size == "1920x1080" || size == "1080x1920" || size == "1280x720" || size == "720x1280" {
+		// 1080p 和 720p 分辨率低于火山引擎最低要求，升级到 2K
+		size = "2K"
+	} else if size == "1024x1024" || size == "1280x1280" {
+		// 1K 正方形分辨率低于最低要求，升级到 2K
+		size = "2K"
+	} else if size == "" {
 		if model == "doubao-seedream-4-5-251128" {
 			size = "2K"
 		} else {
-			size = "1K"
+			size = "2K"
 		}
 	}
 

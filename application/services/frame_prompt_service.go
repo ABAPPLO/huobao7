@@ -72,9 +72,9 @@ type MultiFramePrompt struct {
 
 // GenerateFramePrompt 生成指定类型的帧提示词并保存到frame_prompts表
 func (s *FramePromptService) GenerateFramePrompt(req GenerateFramePromptRequest, model string) (string, error) {
-	// 查询分镜信息
+	// 查询分镜信息，预加载角色和道具
 	var storyboard models.Storyboard
-	if err := s.db.Preload("Characters").First(&storyboard, req.StoryboardID).Error; err != nil {
+	if err := s.db.Preload("Characters").Preload("Props").First(&storyboard, req.StoryboardID).Error; err != nil {
 		return "", fmt.Errorf("storyboard not found: %w", err)
 	}
 
@@ -97,9 +97,9 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 	// 更新任务状态为处理中
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在生成帧提示词...")
 
-	// 查询分镜信息
+	// 查询分镜信息，预加载角色和道具
 	var storyboard models.Storyboard
-	if err := s.db.Preload("Characters").First(&storyboard, req.StoryboardID).Error; err != nil {
+	if err := s.db.Preload("Characters").Preload("Props").First(&storyboard, req.StoryboardID).Error; err != nil {
 		s.log.Errorw("Storyboard not found during frame prompt generation", "error", err, "storyboard_id", req.StoryboardID)
 		s.taskService.UpdateTaskStatus(taskID, "failed", 0, "分镜信息不存在")
 		return
@@ -464,6 +464,15 @@ func (s *FramePromptService) buildStoryboardContext(sb models.Storyboard, scene 
 			charNames = append(charNames, char.Name)
 		}
 		parts = append(parts, s.promptI18n.FormatUserPrompt("characters_label", strings.Join(charNames, ", ")))
+	}
+
+	// 道具
+	if len(sb.Props) > 0 {
+		var propNames []string
+		for _, prop := range sb.Props {
+			propNames = append(propNames, prop.Name)
+		}
+		parts = append(parts, s.promptI18n.FormatUserPrompt("props_label", strings.Join(propNames, ", ")))
 	}
 
 	// 动作

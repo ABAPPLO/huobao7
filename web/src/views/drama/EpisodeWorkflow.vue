@@ -511,6 +511,102 @@
                 </div>
               </div>
             </div>
+
+            <!-- 道具图片生成 -->
+            <el-divider v-if="drama?.props && drama.props.length > 0" />
+
+            <div class="image-gen-section" v-if="drama?.props && drama.props.length > 0">
+              <div class="section-header">
+                <div class="section-title">
+                  <h3>
+                    <el-icon><Box /></el-icon>
+                    道具图片
+                  </h3>
+                  <el-alert type="info" :closable="false" style="margin: 0">
+                    共 {{ drama.props.length }} 个道具
+                  </el-alert>
+                </div>
+                <div class="section-actions">
+                  <el-checkbox
+                    v-model="selectAllProps"
+                    @change="toggleSelectAllProps"
+                    style="margin-left: 12px; margin-right: 12px"
+                  >
+                    全选
+                  </el-checkbox>
+                  <el-button
+                    type="primary"
+                    @click="batchGeneratePropImages"
+                    :loading="batchGeneratingProps"
+                    :disabled="selectedPropIds.length === 0"
+                    size="default"
+                  >
+                    批量生成选中 ({{ selectedPropIds.length }})
+                  </el-button>
+                </div>
+              </div>
+
+              <div class="prop-image-list">
+                <div
+                  v-for="prop in drama?.props"
+                  :key="prop.id"
+                  class="prop-item"
+                >
+                  <el-card shadow="hover" class="fixed-card">
+                    <div class="card-header">
+                      <el-checkbox
+                        v-model="selectedPropIds"
+                        :value="prop.id"
+                        style="margin-right: 8px"
+                      />
+                      <div class="header-left">
+                        <h4>{{ prop.name }}</h4>
+                        <el-tag size="small" v-if="prop.type">{{ prop.type }}</el-tag>
+                      </div>
+                    </div>
+
+                    <div class="card-image-container">
+                      <div v-if="hasPropImage(prop)" class="prop-image">
+                        <el-image :src="getPropImageUrl(prop)" fit="cover" />
+                      </div>
+                      <div v-else class="prop-placeholder">
+                        <el-icon :size="64"><Box /></el-icon>
+                        <span>未生成</span>
+                      </div>
+                    </div>
+
+                    <div class="card-actions">
+                      <el-tooltip content="编辑提示词" placement="top">
+                        <el-button
+                          size="small"
+                          @click="openPropPromptDialog(prop)"
+                          :icon="Edit"
+                          circle
+                        />
+                      </el-tooltip>
+                      <el-tooltip content="AI生成" placement="top">
+                        <el-button
+                          type="primary"
+                          size="small"
+                          @click="generatePropImage(prop.id)"
+                          :loading="generatingPropImages[prop.id]"
+                          :icon="MagicStick"
+                          circle
+                        />
+                      </el-tooltip>
+                      <el-tooltip content="上传图片" placement="top">
+                        <el-button
+                          size="small"
+                          @click="uploadPropImage(prop.id)"
+                          :icon="Upload"
+                          circle
+                        />
+                      </el-tooltip>
+                    </div>
+                  </el-card>
+                </div>
+              </div>
+            </div>
           </div>
         </el-card>
 
@@ -1222,6 +1318,7 @@ import {
   WarningFilled,
   Document,
   Plus,
+  Box,
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
@@ -1229,7 +1326,9 @@ import { characterLibraryAPI } from "@/api/character-library";
 import { aiAPI } from "@/api/ai";
 import type { AIServiceConfig } from "@/types/ai";
 import { imageAPI } from "@/api/image";
+import { propAPI } from "@/api/prop";
 import type { Drama } from "@/types/drama";
+import type { Prop } from "@/types/prop";
 import { AppHeader } from "@/components/common";
 import { getImageUrl, hasImage } from "@/utils/image";
 
@@ -1254,19 +1353,29 @@ const generatingShots = ref(false);
 const extractingCharactersAndBackgrounds = ref(false);
 const batchGeneratingCharacters = ref(false);
 const batchGeneratingScenes = ref(false);
+const batchGeneratingProps = ref(false);
 const generatingCharacterImages = ref<Record<number, boolean>>({});
 const generatingSceneImages = ref<Record<string, boolean>>({});
+const generatingPropImages = ref<Record<number, boolean>>({});
 
 // 选择状态
 const selectedCharacterIds = ref<number[]>([]);
-const selectedSceneIds = ref<number[]>([]);
+const selectedSceneIds = ref<string[]>([]);
+const selectedPropIds = ref<number[]>([]);
 const selectAllCharacters = ref(false);
 const selectAllScenes = ref(false);
+const selectAllProps = ref(false);
 
 // 对话框状态
 const promptDialogVisible = ref(false);
+const promptDialogTitle = ref("");
+const promptDialogType = ref<"character" | "scene" | "prop">("character");
+const promptDialogTarget = ref<any>(null);
+const promptText = ref("");
 const libraryDialogVisible = ref(false);
 const uploadDialogVisible = ref(false);
+const uploadTargetId = ref<number | null>(null);
+const uploadTargetType = ref<"character" | "scene" | "prop">("character");
 const modelConfigDialogVisible = ref(false);
 const addSceneDialogVisible = ref(false);
 const extractScenesDialogVisible = ref(false);
@@ -1735,11 +1844,11 @@ const extractCharactersAndBackgrounds = async () => {
   try {
     const episodeId = currentEpisode.value.id;
 
-    // 并行创建异步任务
-    const [characterTask, backgroundTask] = await Promise.all([
+    // 并行创建异步任务（角色、场景、道具）
+    const [characterTask, backgroundTask, propTask] = await Promise.all([
       generationAPI.generateCharacters({
         drama_id: dramaId.toString(),
-        episode_id: episodeId,
+        episode_id: Number(episodeId),
         outline: currentEpisode.value.script_content || "",
         count: 0,
         model: selectedTextModel.value, // 传递用户选择的文本模型
@@ -1748,14 +1857,16 @@ const extractCharactersAndBackgrounds = async () => {
         episodeId.toString(),
         selectedTextModel.value,
       ), // 传递用户选择的文本模型
+      propAPI.extractFromScript(Number(episodeId)), // 提取道具
     ]);
 
     ElMessage.success("任务已创建，正在后台处理...");
 
-    // 并行轮询两个任务
+    // 并行轮询三个任务
     await Promise.all([
       pollExtractTask(characterTask.task_id, "character"),
       pollExtractTask(backgroundTask.task_id, "background"),
+      pollExtractTask(propTask.task_id, "prop"), // 轮询道具提取任务
     ]);
 
     ElMessage.success($t("workflow.charactersAndScenesExtractSuccess"));
@@ -1788,7 +1899,7 @@ const extractCharactersAndBackgrounds = async () => {
 // 轮询提取任务状态
 const pollExtractTask = async (
   taskId: string,
-  type: "character" | "background",
+  type: "character" | "background" | "prop",
 ) => {
   const maxAttempts = 60; // 最多轮询60次（2分钟）
   const interval = 2000; // 每2秒查询一次
@@ -1815,15 +1926,16 @@ const pollExtractTask = async (
             );
           }
         }
+        // 道具提取完成不需要额外处理，后端已经保存到数据库
         return;
       } else if (task.status === "failed") {
         // 任务失败
-        throw new Error(
-          task.error ||
-            (type === "character"
-              ? $t("workflow.characterGenerationFailed")
-              : $t("workflow.sceneExtractionFailed")),
-        );
+        const typeMessages: Record<string, string> = {
+          character: $t("workflow.characterGenerationFailed"),
+          background: $t("workflow.sceneExtractionFailed"),
+          prop: "道具提取失败",
+        };
+        throw new Error(task.error || typeMessages[type] || "任务失败");
       }
       // 否则继续轮询
     } catch (error: any) {
@@ -1832,11 +1944,12 @@ const pollExtractTask = async (
     }
   }
 
-  throw new Error(
-    type === "character"
-      ? $t("workflow.characterGenerationTimeout")
-      : $t("workflow.sceneExtractionTimeout"),
-  );
+  const timeoutMessages: Record<string, string> = {
+    character: $t("workflow.characterGenerationTimeout"),
+    background: $t("workflow.sceneExtractionTimeout"),
+    prop: "道具提取超时",
+  };
+  throw new Error(timeoutMessages[type] || "任务超时");
 };
 
 const generateCharacterImage = async (characterId: number) => {
@@ -1976,6 +2089,111 @@ const batchGenerateSceneImages = async () => {
   } finally {
     batchGeneratingScenes.value = false;
   }
+};
+
+// 道具相关功能
+const toggleSelectAllProps = () => {
+  if (selectAllProps.value) {
+    selectedPropIds.value = drama.value?.props?.map((p) => p.id) || [];
+  } else {
+    selectedPropIds.value = [];
+  }
+};
+
+const batchGeneratePropImages = async () => {
+  if (selectedPropIds.value.length === 0) {
+    ElMessage.warning("请先选择要生成的道具");
+    return;
+  }
+
+  batchGeneratingProps.value = true;
+  try {
+    const promises = selectedPropIds.value.map((propId) =>
+      generatePropImage(propId),
+    );
+    const results = await Promise.allSettled(promises);
+
+    const successCount = results.filter((r) => r.status === "fulfilled").length;
+    const failCount = results.filter((r) => r.status === "rejected").length;
+
+    if (failCount === 0) {
+      ElMessage.success(`成功生成 ${successCount} 个道具图片`);
+    } else {
+      ElMessage.warning(
+        `完成: ${successCount} 成功, ${failCount} 失败`,
+      );
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || "批量生成道具图片失败");
+  } finally {
+    batchGeneratingProps.value = false;
+  }
+};
+
+const generatePropImage = async (propId: number) => {
+  generatingPropImages.value[propId] = true;
+  try {
+    const result = await propAPI.generateImage(propId);
+    // 启动轮询
+    await pollPropImageStatus(result.task_id, async () => {
+      await loadDramaData();
+      ElMessage.success("道具图片生成完成！");
+    });
+  } catch (error: any) {
+    ElMessage.error(error.message || "道具图片生成失败");
+    throw error;
+  } finally {
+    generatingPropImages.value[propId] = false;
+  }
+};
+
+const pollPropImageStatus = async (taskId: string, onComplete: () => void) => {
+  const maxAttempts = 60;
+  const pollInterval = 6000;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      const task = await generationAPI.getTaskStatus(taskId);
+
+      if (task.status === "completed") {
+        await onComplete();
+        return;
+      } else if (task.status === "failed") {
+        ElMessage.error(`道具图片生成失败: ${task.error || "未知错误"}`);
+        return;
+      }
+    } catch (error: any) {
+      console.error("[轮询] 检查道具图片状态失败:", error);
+    }
+  }
+
+  ElMessage.warning("道具图片生成超时，请稍后刷新页面查看结果");
+};
+
+const hasPropImage = (prop: Prop) => {
+  return !!(prop.image_url || prop.local_path);
+};
+
+const getPropImageUrl = (prop: Prop) => {
+  if (prop.local_path) {
+    return `/static/${prop.local_path}`;
+  }
+  return prop.image_url || "";
+};
+
+const openPropPromptDialog = (prop: Prop) => {
+  promptDialogVisible.value = true;
+  promptDialogTitle.value = `编辑道具提示词 - ${prop.name}`;
+  promptDialogType.value = "prop";
+  promptDialogTarget.value = prop;
+  promptText.value = prop.prompt || "";
+};
+
+const uploadPropImage = (propId: number) => {
+  uploadDialogVisible.value = true;
+  uploadTargetId.value = propId;
+  uploadTargetType.value = "prop";
 };
 
 const taskProgress = ref(0);
@@ -2899,7 +3117,8 @@ onMounted(() => {
 }
 
 .character-image-list,
-.scene-image-list {
+.scene-image-list,
+.prop-image-list {
   padding: 5px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -2907,9 +3126,29 @@ onMounted(() => {
   margin-top: 16px;
 
   .character-item,
-  .scene-item {
+  .scene-item,
+  .prop-item {
     min-height: 360px;
   }
+}
+
+// 道具图片样式
+.prop-image {
+  width: 100%;
+  height: 100%;
+  .el-image {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.prop-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 // 角色库选择对话框

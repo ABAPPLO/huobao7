@@ -53,6 +53,7 @@ type Storyboard struct {
 	BgmPrompt   string `json:"bgm_prompt"`   // 配乐提示词
 	SoundEffect string `json:"sound_effect"` // 音效描述
 	Characters  []uint `json:"characters"`   // 涉及的角色ID列表
+	Props       []uint `json:"props"`        // 涉及的道具ID列表
 	IsPrimary   bool   `json:"is_primary"`   // 是否主镜
 }
 
@@ -122,6 +123,26 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 		sceneList = fmt.Sprintf("[%s]", strings.Join(sceneInfoList, ", "))
 	}
 
+	// 获取该项目已提取的道具列表（项目级）
+	var props []models.Prop
+	if err := s.db.Where("drama_id = ?", episode.DramaID).Order("name ASC").Find(&props).Error; err != nil {
+		s.log.Warnw("Failed to get props", "error", err)
+	}
+
+	// 构建道具列表字符串（包含ID、名称、类型）
+	propList := "无道具"
+	if len(props) > 0 {
+		var propInfoList []string
+		for _, prop := range props {
+			propType := ""
+			if prop.Type != nil {
+				propType = *prop.Type
+			}
+			propInfoList = append(propInfoList, fmt.Sprintf(`{"id": %d, "name": "%s", "type": "%s"}`, prop.ID, prop.Name, propType))
+		}
+		propList = fmt.Sprintf("[%s]", strings.Join(propInfoList, ", "))
+	}
+
 	// 使用国际化提示词
 	systemPrompt := s.promptI18n.GetStoryboardSystemPrompt()
 
@@ -132,6 +153,8 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 	charConstraint := s.promptI18n.FormatUserPrompt("character_constraint")
 	sceneListLabel := s.promptI18n.FormatUserPrompt("scene_list_label")
 	sceneConstraint := s.promptI18n.FormatUserPrompt("scene_constraint")
+	propListLabel := s.promptI18n.FormatUserPrompt("prop_list_label")
+	propConstraint := s.promptI18n.FormatUserPrompt("prop_constraint")
 
 	prompt := fmt.Sprintf(`%s
 
@@ -148,6 +171,9 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 %s
 %s
 
+%s
+
+%s
 %s
 
 【剧本原文】
@@ -231,7 +257,7 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 - 无对话时填写空字符串：""
 - **对话内容必须从原剧本中提取，保持原汁原味**
 
-**角色和背景要求**：
+**角色、背景和道具要求**：
 - characters字段必须包含该镜头中出现的所有角色ID（数字数组格式）
 - 只提取实际出现的角色ID，不出现角色则为空数组[]
 - **角色ID必须严格使用【本剧可用角色列表】中的id字段（数字），不得使用其他ID或自创角色**
@@ -239,6 +265,10 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 - scene_id字段必须从【本剧已提取的场景背景列表】中选择最匹配的背景ID（数字）
 - 如果列表中没有合适的背景，则scene_id填null
 - 例如：如果镜头发生在"城市公寓卧室·凌晨"，应选择id为1的场景背景
+- props字段必须包含该镜头中出现的所有道具ID（数字数组格式）
+- 只提取实际出现的重要道具ID，无道具则为空数组[]
+- **道具ID必须严格使用【本剧可用道具列表】中的id字段（数字）**
+- 例如：如果镜头中出现手枪(id:5)和手机(id:8)，则props字段应为[5, 8]
 
 **duration时长估算规则（秒）**：
 - **所有镜头时长必须在4-12秒范围内**，确保节奏合理流畅
@@ -318,7 +348,7 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 - 包含感官细节：视觉、听觉、触觉、嗅觉
 - 描述光线、色彩、质感、动态
 - 为视频生成AI提供足够的画面构建信息
-- 避免抽象词汇，使用具象的视觉化描述`, systemPrompt, scriptLabel, scriptContent, taskLabel, taskInstruction, charListLabel, characterList, charConstraint, sceneListLabel, sceneList, sceneConstraint)
+- 避免抽象词汇，使用具象的视觉化描述`, systemPrompt, scriptLabel, scriptContent, taskLabel, taskInstruction, charListLabel, characterList, charConstraint, sceneListLabel, sceneList, sceneConstraint, propListLabel, propList, propConstraint)
 
 	// 创建异步任务
 	task, err := s.taskService.CreateTask("storyboard_generation", episodeID)
@@ -859,6 +889,23 @@ func (s *StoryboardService) saveStoryboards(episodeID string, storyboards []Stor
 							"shot_number", sb.ShotNumber,
 							"character_ids", sb.Characters,
 							"count", len(characters))
+					}
+				}
+			}
+
+			// 关联道具
+			if len(sb.Props) > 0 {
+				var props []models.Prop
+				if err := tx.Where("id IN ?", sb.Props).Find(&props).Error; err != nil {
+					s.log.Warnw("Failed to load props for association", "error", err, "prop_ids", sb.Props)
+				} else if len(props) > 0 {
+					if err := tx.Model(&scene).Association("Props").Append(props); err != nil {
+						s.log.Warnw("Failed to associate props", "error", err, "shot_number", sb.ShotNumber)
+					} else {
+						s.log.Infow("Props associated successfully",
+							"shot_number", sb.ShotNumber,
+							"prop_ids", sb.Props,
+							"count", len(props))
 					}
 				}
 			}

@@ -66,3 +66,5 @@ build.sh
 /data/storage/
 /web/package-lock.json
 .DS_Store
+# Data folder (all content)
+data/
