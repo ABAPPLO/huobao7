@@ -255,6 +255,11 @@ export default {
     extractSuccess: '道具提取任务已提交，AI分析大约需要1分钟',
     generateImage: '生成图片'
   },
+  sceneExtraction: {
+    extractTitle: '从剧本提取场景',
+    extractTip: 'AI将分析剧本内容，自动提取关键场景并生成描述',
+    extractSuccess: '场景提取任务已提交，AI分析大约需要1分钟'
+  },
   script: {
     title: '剧本生成',
     backToProject: '返回项目',

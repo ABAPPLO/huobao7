@@ -191,6 +191,15 @@ func (s *DramaService) GetDrama(dramaID string) (*models.Drama, error) {
 		}
 	}
 
+	// 单独加载 episode_id 为 null 的场景（Drama级别的场景）
+	var dramaLevelScenes []models.Scene
+	if err := s.db.Where("drama_id = ? AND episode_id IS NULL", drama.ID).Find(&dramaLevelScenes).Error; err != nil {
+		s.log.Errorw("Failed to load drama level scenes", "error", err)
+	}
+	for i := range dramaLevelScenes {
+		sceneMap[dramaLevelScenes[i].ID] = &dramaLevelScenes[i]
+	}
+
 	// 将整合的场景添加到drama.Scenes
 	drama.Scenes = make([]models.Scene, 0, len(sceneMap))
 	for _, scene := range sceneMap {

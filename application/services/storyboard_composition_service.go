@@ -462,7 +462,7 @@ func (s *StoryboardCompositionService) UpdateSceneInfo(sceneID string, req *Upda
 		updates["prompt"] = *req.Prompt
 	}
 	if req.Description != nil {
-		updates["description"] = *req.Description
+		updates["prompt"] = *req.Description
 	}
 	if req.ImageURL != nil {
 		updates["image_url"] = *req.ImageURL

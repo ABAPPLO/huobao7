@@ -295,6 +295,17 @@
           <el-tab-pane :label="$t('drama.management.sceneList')" name="scenes">
             <div class="tab-header">
               <h2>{{ $t("drama.management.sceneList") }}</h2>
+              <div style="display: flex; gap: 10px">
+                <el-button :icon="Document" @click="openExtractSceneDialog">{{
+                  $t("prop.extract")
+                }}</el-button>
+                <el-button
+                  type="primary"
+                  :icon="Plus"
+                  @click="openAddSceneDialog"
+                  >{{ $t("common.add") }}</el-button
+                >
+              </div>
             </div>
 
             <el-row :gutter="16" style="margin-top: 16px">
@@ -310,8 +321,8 @@
                   </div>
 
                   <div class="scene-info">
-                    <h4>{{ scene.name }}</h4>
-                    <p class="desc">{{ scene.description }}</p>
+                    <h4>{{ scene.location }}</h4>
+                    <p class="desc">{{ scene.prompt || scene.description }}</p>
                   </div>
 
                   <div class="scene-actions">
@@ -726,7 +737,7 @@
       <!-- 从剧本提取场景对话框 -->
       <el-dialog
         v-model="extractScenesDialogVisible"
-        :title="$t('prop.extractTitle')"
+        :title="$t('sceneExtraction.extractTitle')"
         width="500px"
       >
         <el-form label-width="100px">
@@ -745,7 +756,7 @@
             </el-select>
           </el-form-item>
           <el-alert
-            :title="$t('prop.extractTip')"
+            :title="$t('sceneExtraction.extractTip')"
             type="info"
             :closable="false"
             show-icon
@@ -1265,7 +1276,7 @@ const saveScene = async () => {
 
     ElMessage.success(editingScene.value ? "场景更新成功" : "场景添加成功");
     addSceneDialogVisible.value = false;
-    await loadScenes();
+    await loadDramaData();
   } catch (error: any) {
     ElMessage.error(error.message || "操作失败");
   }
@@ -1301,7 +1312,7 @@ const deleteScene = async (scene: any) => {
 
     await dramaAPI.deleteScene(scene.id.toString());
     ElMessage.success("场景已删除");
-    await loadScenes();
+    await loadDramaData();
   } catch (error: any) {
     if (error !== "cancel") {
       console.error("删除场景失败:", error);

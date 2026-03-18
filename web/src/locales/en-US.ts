@@ -224,6 +224,11 @@ export default {
     extractSuccess: 'Prop extraction task submitted, AI analysis will take about 1 minute',
     generateImage: 'Generate Image'
   },
+  sceneExtraction: {
+    extractTitle: 'Extract Scenes from Script',
+    extractTip: 'AI will analyze the script to automatically extract key scenes and generate descriptions',
+    extractSuccess: 'Scene extraction task submitted, AI analysis will take about 1 minute'
+  },
   scriptGenerationPage: {
     prevStep: 'Previous',
     characterList: 'Character List',
