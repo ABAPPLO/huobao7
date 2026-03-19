@@ -1862,15 +1862,28 @@ const extractCharactersAndBackgrounds = async () => {
 
     ElMessage.success("任务已创建，正在后台处理...");
 
-    // 并行轮询三个任务
-    await Promise.all([
+    // 并行轮询三个任务（使用 allSettled 确保即使部分任务失败也能刷新数据）
+    const results = await Promise.allSettled([
       pollExtractTask(characterTask.task_id, "character"),
       pollExtractTask(backgroundTask.task_id, "background"),
       pollExtractTask(propTask.task_id, "prop"), // 轮询道具提取任务
     ]);
 
-    ElMessage.success($t("workflow.charactersAndScenesExtractSuccess"));
+    // 检查任务结果
+    const failedTasks = results.filter((r) => r.status === "rejected");
+    const successTasks = results.filter((r) => r.status === "fulfilled");
+
+    // 无论成功失败，都刷新数据
     await loadDramaData();
+
+    if (failedTasks.length > 0) {
+      // 有任务失败，显示警告
+      const failedMessages = failedTasks.map((r) => (r as PromiseRejectedResult).reason?.message || "未知错误").join("; ");
+      ElMessage.warning(`部分任务失败: ${failedMessages}，请稍后刷新页面查看已完成的内容`);
+    } else if (successTasks.length === 3) {
+      // 全部成功
+      ElMessage.success($t("workflow.charactersAndScenesExtractSuccess"));
+    }
   } catch (error: any) {
     console.error($t("workflow.charactersAndScenesExtractFailed") + ":", error);
 
@@ -1891,6 +1904,9 @@ const extractCharactersAndBackgrounds = async () => {
     } else {
       ElMessage.error(errorMsg);
     }
+
+    // 即使出错，也尝试刷新数据
+    await loadDramaData();
   } finally {
     extractingCharactersAndBackgrounds.value = false;
   }
@@ -1901,7 +1917,7 @@ const pollExtractTask = async (
   taskId: string,
   type: "character" | "background" | "prop",
 ) => {
-  const maxAttempts = 60; // 最多轮询60次（2分钟）
+  const maxAttempts = 300; // 最多轮询300次（10分钟）
   const interval = 2000; // 每2秒查询一次
 
   for (let i = 0; i < maxAttempts; i++) {
