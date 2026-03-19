@@ -138,6 +138,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			episodes.GET("/:episode_id/storyboards", sceneHandler.GetStoryboardsForEpisode)
 			episodes.POST("/:episode_id/finalize", dramaHandler.FinalizeEpisode)
 			episodes.GET("/:episode_id/download", dramaHandler.DownloadEpisodeVideo)
+			episodes.DELETE("/:episode_id", dramaHandler.DeleteEpisode)
 		}
 
 		// 任务路由

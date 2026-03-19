@@ -63,6 +63,10 @@ export const dramaAPI = {
     return request.put(`/dramas/${id}/episodes`, { episodes: data })
   },
 
+  deleteEpisode(episodeId: string) {
+    return request.delete(`/episodes/${episodeId}`)
+  },
+
   saveProgress(id: string, data: { current_step: string; step_data?: any }) {
     return request.put(`/dramas/${id}/progress`, data)
   },

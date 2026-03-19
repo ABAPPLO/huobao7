@@ -973,21 +973,8 @@ const deleteEpisode = async (episode: any) => {
       },
     );
 
-    // 过滤掉要删除的章节
-    const existingEpisodes = drama.value?.episodes || [];
-    const updatedEpisodes = existingEpisodes
-      .filter((ep) => ep.episode_number !== episode.episode_number)
-      .map((ep) => ({
-        episode_number: ep.episode_number,
-        title: ep.title,
-        script_content: ep.script_content,
-        description: ep.description,
-        duration: ep.duration,
-        status: ep.status,
-      }));
-
-    // 保存更新后的章节列表
-    await dramaAPI.saveEpisodes(drama.value!.id, updatedEpisodes);
+    // 调用单独的删除 API
+    await dramaAPI.deleteEpisode(episode.id);
 
     ElMessage.success(`第${episode.episode_number}章删除成功`);
     await loadDramaData();

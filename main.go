@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/drama-generator/backend/api/routes"
+	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/infrastructure/database"
 	"github.com/drama-generator/backend/infrastructure/storage"
 	"github.com/drama-generator/backend/pkg/config"
@@ -40,6 +41,12 @@ func main() {
 		logr.Fatal("Failed to migrate database", "error", err)
 	}
 	logr.Info("Database tables migrated successfully")
+
+	// 清理重复的章节记录
+	dramaService := services.NewDramaService(db, cfg, logr)
+	if err := dramaService.CleanDuplicateEpisodes(); err != nil {
+		logr.Warnw("Failed to clean duplicate episodes", "error", err)
+	}
 
 	// 初始化本地存储
 	var localStorage *storage.LocalStorage

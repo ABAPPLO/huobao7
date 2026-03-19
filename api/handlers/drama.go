@@ -289,6 +289,26 @@ func (h *DramaHandler) SaveProgress(c *gin.Context) {
 	response.Success(c, gin.H{"message": "保存成功"})
 }
 
+// DeleteEpisode 删除指定章节
+func (h *DramaHandler) DeleteEpisode(c *gin.Context) {
+	episodeID := c.Param("episode_id")
+	if episodeID == "" {
+		response.BadRequest(c, "episode_id 不能为空")
+		return
+	}
+
+	if err := h.dramaService.DeleteEpisode(episodeID); err != nil {
+		if err.Error() == "episode not found" {
+			response.NotFound(c, "章节不存在")
+			return
+		}
+		response.InternalError(c, "删除失败")
+		return
+	}
+
+	response.Success(c, gin.H{"message": "删除成功"})
+}
+
 // FinalizeEpisode 完成集数制作（触发视频合成）
 func (h *DramaHandler) FinalizeEpisode(c *gin.Context) {
 
