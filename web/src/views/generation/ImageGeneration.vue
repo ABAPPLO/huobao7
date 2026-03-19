@@ -54,11 +54,11 @@
         <el-card class="image-card" shadow="hover">
           <div class="image-wrapper">
             <el-image
-              v-if="image.status === 'completed' && image.image_url"
-              :src="image.image_url"
+              v-if="image.status === 'completed' && (image.local_path || image.image_url)"
+              :src="getImageUrl(image)"
               fit="cover"
               class="image"
-              :preview-src-list="[image.image_url]"
+              :preview-src-list="[getImageUrl(image)]"
             >
               <template #error>
                 <div class="image-placeholder">
@@ -169,6 +169,7 @@ import {
 } from '@element-plus/icons-vue'
 import { imageAPI } from '@/api/image'
 import { dramaAPI } from '@/api/drama'
+import { getImageUrl } from '@/utils/image'
 import type { ImageGeneration, ImageStatus } from '@/types/image'
 import type { Drama } from '@/types/drama'
 import GenerateImageDialog from './components/GenerateImageDialog.vue'
@@ -235,8 +236,9 @@ const viewDetails = (image: ImageGeneration) => {
 }
 
 const downloadImage = (image: ImageGeneration) => {
-  if (!image.image_url) return
-  window.open(image.image_url, '_blank')
+  const url = getImageUrl(image)
+  if (!url) return
+  window.open(url, '_blank')
 }
 
 const deleteImage = async (id: number) => {

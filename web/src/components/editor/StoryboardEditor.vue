@@ -25,8 +25,8 @@
             </div>
             <div class="scene-desc">{{ shot.action }}</div>
           </div>
-          <div class="scene-thumb" v-if="shot.background_url">
-            <el-image :src="shot.background_url" fit="cover" />
+          <div class="scene-thumb" v-if="shot.background_url || shot.background_local_path">
+            <el-image :src="getImageUrl({ local_path: shot.background_local_path, image_url: shot.background_url })" fit="cover" />
           </div>
         </div>
       </div>
@@ -41,7 +41,7 @@
         </div>
         <div class="header-actions">
           <el-button-group>
-            <el-button :icon="VideoPlay" size="small" v-if="currentShot?.video_url">预览</el-button>
+            <el-button :icon="VideoPlay" size="small" v-if="currentShot?.video_url || currentShot?.video_local_path">预览</el-button>
             <el-button :icon="Refresh" size="small" @click="handleRegenerateShot">重新生成</el-button>
             <el-button :icon="Download" size="small">导出</el-button>
           </el-button-group>
@@ -51,12 +51,12 @@
       <div class="preview-area">
         <div class="preview-container">
           <!-- 视频预览优先 -->
-          <div v-if="currentShot?.video_url" class="preview-video">
-            <video :src="currentShot.video_url" controls style="max-width: 100%; max-height: 100%;" />
+          <div v-if="currentShot?.video_url || currentShot?.video_local_path" class="preview-video">
+            <video :src="getVideoUrl({ local_path: currentShot?.video_local_path, video_url: currentShot?.video_url })" controls style="max-width: 100%; max-height: 100%;" />
           </div>
           <!-- 背景图预览 -->
-          <div v-else-if="currentShot?.background_url" class="preview-image">
-            <el-image :src="currentShot.background_url" fit="contain" />
+          <div v-else-if="currentShot?.background_url || currentShot?.background_local_path" class="preview-image">
+            <el-image :src="getImageUrl({ local_path: currentShot?.background_local_path, image_url: currentShot?.background_url })" fit="contain" />
           </div>
           <!-- 占位符 -->
           <div v-else class="preview-placeholder">
@@ -269,8 +269,8 @@
             <div class="param-group">
               <label>背景图片</label>
               <div class="background-compact">
-                <div class="background-preview-small" v-if="currentShot.background_url">
-                  <el-image :src="currentShot.background_url" fit="cover" />
+                <div class="background-preview-small" v-if="currentShot.background_url || currentShot.background_local_path">
+                  <el-image :src="getImageUrl({ local_path: currentShot.background_local_path, image_url: currentShot.background_url })" fit="cover" />
                 </div>
                 <div v-else class="background-placeholder-small">
                   <el-icon :size="20"><Picture /></el-icon>
@@ -361,8 +361,8 @@
           <div class="param-section" v-if="currentShot">
             <div class="param-group">
               <label>视频预览</label>
-              <div class="video-preview" v-if="currentShot.video_url" @click="toggleVideoPlay">
-                <video ref="videoPlayerRef" :src="currentShot.video_url" style="width: 100%;" @ended="videoPlaying = false" />
+              <div class="video-preview" v-if="currentShot.video_url || currentShot.video_local_path" @click="toggleVideoPlay">
+                <video ref="videoPlayerRef" :src="getVideoUrl({ local_path: currentShot.video_local_path, video_url: currentShot.video_url })" style="width: 100%;" @ended="videoPlaying = false" />
                 <div class="video-play-overlay" :class="{ hidden: videoPlaying }">
                   <el-icon :size="48"><VideoPlay /></el-icon>
                 </div>
@@ -430,6 +430,7 @@ import {
 import { dramaAPI } from '@/api/drama'
 import { videoAPI } from '@/api/video'
 import { useRouter } from 'vue-router'
+import { getImageUrl, getVideoUrl } from '@/utils/image'
 
 interface Storyboard {
   id?: string | number
@@ -445,7 +446,9 @@ interface Storyboard {
   dialogue?: string
   duration?: number
   background_url?: string
+  background_local_path?: string
   video_url?: string
+  video_local_path?: string
   scene_id?: string | number
   title?: string
   bgm_prompt?: string

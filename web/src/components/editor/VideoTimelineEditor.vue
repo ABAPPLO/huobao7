@@ -96,7 +96,7 @@
             @dragstart="handleDragStart($event, scene)"
           >
             <div class="media-thumbnail" @click="previewScene(scene)">
-              <video :src="scene.video_url" />
+              <video :src="getVideoUrl(scene)" />
               <div class="media-duration">{{ scene.duration > 0 ? scene.duration.toFixed(1) : '?' }}s</div>
               <el-button
                 class="delete-btn"
@@ -188,7 +188,7 @@
             >
               <div class="clip-content">
                 <div class="clip-thumbnail">
-                  <video :src="clip.video_url" />
+                  <video :src="getVideoUrl(clip)" />
                 </div>
                 <div class="clip-info">
                   <div class="clip-title">{{ $t('storyboard.scene') }} {{ clip.storyboard_number }}</div>
@@ -413,6 +413,7 @@ interface Scene {
   location?: string
   time?: string
   video_url: string
+  video_local_path?: string  // 本地路径
   asset_id?: string
   duration?: number
 }
@@ -422,6 +423,7 @@ interface TimelineClip {
   storyboard_id: string
   storyboard_number: number
   video_url: string
+  video_local_path?: string  // 本地路径
   asset_id?: string // 素材库中的资源ID
   start_time: number
   end_time: number

@@ -10,13 +10,13 @@
         <el-col :span="16">
           <div class="video-preview">
             <video
-              v-if="video.status === 'completed' && video.video_url"
-              :src="video.video_url"
+              v-if="video.status === 'completed' && (video.local_path || video.video_url)"
+              :src="getVideoUrl(video)"
               class="preview-video"
               controls
               autoplay
               loop
-              :poster="video.first_frame_url"
+              :poster="getImageUrl({ local_path: video.first_frame_local_path, image_url: video.first_frame_url })"
             >
               您的浏览器不支持视频播放
             </video>
@@ -105,13 +105,13 @@
               <div class="prompt-text">{{ video.prompt }}</div>
             </div>
 
-            <div v-if="video.image_url" class="image-section">
+            <div v-if="video.image_url || video.image_local_path" class="image-section">
               <h4>源图片</h4>
               <el-image
-                :src="video.image_url"
+                :src="getImageUrl({ local_path: video.image_local_path, image_url: video.image_url })"
                 fit="contain"
                 class="source-image"
-                :preview-src-list="[video.image_url]"
+                :preview-src-list="[getImageUrl({ local_path: video.image_local_path, image_url: video.image_url })]"
               />
             </div>
           </div>
@@ -150,6 +150,7 @@ import {
 } from '@element-plus/icons-vue'
 import type { VideoGeneration, VideoStatus } from '@/types/video'
 import { CAMERA_MOTIONS } from '@/types/video'
+import { getImageUrl, getVideoUrl } from '@/utils/image'
 
 interface Props {
   modelValue: boolean
@@ -196,9 +197,12 @@ const formatDateTime = (dateString: string) => {
   return new Date(dateString).toLocaleString('zh-CN')
 }
 
+const displayVideoUrl = computed(() => getVideoUrl(props.video))
+
 const downloadVideo = () => {
-  if (!props.video?.video_url) return
-  window.open(props.video.video_url, '_blank')
+  const url = displayVideoUrl.value
+  if (!url) return
+  window.open(url, '_blank')
 }
 
 const regenerate = () => {

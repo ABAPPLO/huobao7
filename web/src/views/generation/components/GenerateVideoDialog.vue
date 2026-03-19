@@ -32,7 +32,7 @@
             :value="image.id"
           >
             <div class="image-option">
-              <img v-if="image.image_url" :src="image.image_url" class="image-thumb" />
+              <img v-if="image.local_path || image.image_url" :src="getImageUrl(image)" class="image-thumb" />
               <span>{{ truncateText(image.prompt, 40) }}</span>
             </div>
           </el-option>
@@ -138,6 +138,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { videoAPI } from '@/api/video'
 import { imageAPI } from '@/api/image'
 import { dramaAPI } from '@/api/drama'
+import { getImageUrl } from '@/utils/image'
 import type { Drama } from '@/types/drama'
 import type { ImageGeneration } from '@/types/image'
 import type { GenerateVideoRequest } from '@/types/video'
@@ -245,12 +246,20 @@ const onDramaChange = (dramaId: string) => {
 const onImageChange = (imageGenId: number | undefined) => {
   if (!imageGenId) {
     form.image_url = ''
+    form.image_local_path = undefined
     return
   }
-  
+
   const image = images.value.find(img => img.id === imageGenId)
-  if (image && image.image_url) {
-    form.image_url = image.image_url
+  if (image) {
+    // 优先使用本地路径
+    if (image.local_path) {
+      form.image_local_path = image.local_path
+      form.image_url = ''  // 清空远程URL，使用本地路径
+    } else if (image.image_url) {
+      form.image_url = image.image_url
+      form.image_local_path = undefined
+    }
     form.prompt = image.prompt
   }
 }

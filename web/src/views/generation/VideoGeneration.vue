@@ -54,11 +54,11 @@
         <el-card class="video-card" shadow="hover">
           <div class="video-wrapper">
             <video
-              v-if="video.status === 'completed' && video.video_url"
-              :src="video.video_url"
+              v-if="video.status === 'completed' && (video.local_path || video.video_url)"
+              :src="getVideoUrl(video)"
               class="video-player"
               controls
-              :poster="video.first_frame_url"
+              :poster="getImageUrl({ local_path: video.first_frame_local_path, image_url: video.first_frame_url })"
             >
               您的浏览器不支持视频播放
             </video>
@@ -172,6 +172,7 @@ import {
 } from '@element-plus/icons-vue'
 import { videoAPI } from '@/api/video'
 import { dramaAPI } from '@/api/drama'
+import { getImageUrl, getVideoUrl } from '@/utils/image'
 import type { VideoGeneration, VideoStatus } from '@/types/video'
 import type { Drama } from '@/types/drama'
 import GenerateVideoDialog from './components/GenerateVideoDialog.vue'
@@ -239,8 +240,9 @@ const viewDetails = (video: VideoGeneration) => {
 }
 
 const downloadVideo = (video: VideoGeneration) => {
-  if (!video.video_url) return
-  window.open(video.video_url, '_blank')
+  const url = getVideoUrl(video)
+  if (!url) return
+  window.open(url, '_blank')
 }
 
 const deleteVideo = async (id: number) => {

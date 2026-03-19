@@ -28,10 +28,13 @@ type VideoGeneration struct {
 	// 参考图模式：single(单图), first_last(首尾帧), multiple(多图), none(无)
 	ReferenceMode *string `gorm:"type:varchar(20)" json:"reference_mode,omitempty"`
 
-	ImageURL           *string `gorm:"type:varchar(1000)" json:"image_url,omitempty"`
-	FirstFrameURL      *string `gorm:"type:varchar(1000)" json:"first_frame_url,omitempty"`
-	LastFrameURL       *string `gorm:"type:varchar(1000)" json:"last_frame_url,omitempty"`
-	ReferenceImageURLs *string `gorm:"type:text" json:"reference_image_urls,omitempty"` // JSON数组存储多张参考图
+	ImageURL             *string `gorm:"type:varchar(1000)" json:"image_url,omitempty"`
+	ImageLocalPath       *string `gorm:"type:varchar(500)" json:"image_local_path,omitempty"`       // 源图片本地路径
+	FirstFrameURL        *string `gorm:"type:varchar(1000)" json:"first_frame_url,omitempty"`
+	FirstFrameLocalPath  *string `gorm:"type:varchar(500)" json:"first_frame_local_path,omitempty"`  // 首帧本地路径
+	LastFrameURL         *string `gorm:"type:varchar(1000)" json:"last_frame_url,omitempty"`
+	LastFrameLocalPath   *string `gorm:"type:varchar(500)" json:"last_frame_local_path,omitempty"`   // 尾帧本地路径
+	ReferenceImageURLs   *string `gorm:"type:text" json:"reference_image_urls,omitempty"` // JSON数组存储多张参考图
 
 	Duration     *int    `json:"duration,omitempty"`
 	FPS          *int    `json:"fps,omitempty"`

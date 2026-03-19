@@ -1322,7 +1322,7 @@
                           >
                             <img
                               v-if="firstFrameSlotImage"
-                              :src="firstFrameSlotImage.image_url"
+                              :src="getImageUrl(firstFrameSlotImage)"
                               alt=""
                               style="
                                 width: 100%;
@@ -1360,7 +1360,7 @@
                           >
                             <img
                               v-if="lastFrameSlotImage"
-                              :src="lastFrameSlotImage.image_url"
+                              :src="getImageUrl(lastFrameSlotImage)"
                               alt=""
                               style="
                                 width: 100%;
@@ -1436,7 +1436,7 @@
                         >
                           <img
                             v-if="selectedImageObjects[index - 1]"
-                            :src="selectedImageObjects[index - 1].image_url"
+                            :src="getImageUrl(selectedImageObjects[index - 1])"
                             alt=""
                             style="width: 100%; height: 100%; object-fit: cover"
                           />
@@ -1792,9 +1792,9 @@
     >
       <div
         class="scene-image-preview"
-        v-if="currentStoryboard?.background?.image_url"
+        v-if="currentStoryboard?.background?.image_url || currentStoryboard?.background?.local_path"
       >
-        <img :src="currentStoryboard.background.image_url" alt="场景" />
+        <img :src="getImageUrl(currentStoryboard.background)" alt="场景" />
       </div>
     </el-dialog>
 

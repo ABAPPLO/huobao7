@@ -10,11 +10,11 @@
         <el-col :span="14">
           <div class="image-preview">
             <el-image
-              v-if="image.status === 'completed' && image.image_url"
-              :src="image.image_url"
+              v-if="image.status === 'completed' && (image.local_path || image.image_url)"
+              :src="getImageUrl(image)"
               fit="contain"
               class="preview-image"
-              :preview-src-list="[image.image_url]"
+              :preview-src-list="[getImageUrl(image)]"
             >
               <template #error>
                 <div class="image-error">
@@ -137,6 +137,7 @@ import {
   Download, Refresh
 } from '@element-plus/icons-vue'
 import { imageAPI } from '@/api/image'
+import { getImageUrl } from '@/utils/image'
 import type { ImageGeneration, ImageStatus } from '@/types/image'
 
 interface Props {
@@ -179,9 +180,12 @@ const formatDateTime = (dateString: string) => {
   return new Date(dateString).toLocaleString('zh-CN')
 }
 
+const displayImageUrl = computed(() => getImageUrl(props.image))
+
 const downloadImage = () => {
-  if (!props.image?.image_url) return
-  window.open(props.image.image_url, '_blank')
+  const url = displayImageUrl.value
+  if (!url) return
+  window.open(url, '_blank')
 }
 
 const regenerate = () => {

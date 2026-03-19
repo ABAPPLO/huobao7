@@ -114,7 +114,9 @@ type Storyboard struct {
 	Description      *string        `gorm:"type:text" json:"description"`
 	Duration         int            `gorm:"default:5" json:"duration"`
 	ComposedImage    *string        `gorm:"type:text" json:"composed_image"`
+	ComposedImageLocalPath *string  `gorm:"type:text" json:"composed_image_local_path,omitempty"` // 组合图片本地路径
 	VideoURL         *string        `gorm:"type:text" json:"video_url"`
+	VideoLocalPath   *string        `gorm:"type:text" json:"video_local_path,omitempty"` // 视频本地路径
 	Status           string         `gorm:"type:varchar(20);default:'pending'" json:"status"`
 	CreatedAt        time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        time.Time      `gorm:"autoUpdateTime" json:"updated_at"`

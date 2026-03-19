@@ -90,8 +90,11 @@ export interface Storyboard {
   video_prompt?: string
   characters?: any
   image_url?: string
+  image_local_path?: string
   video_url?: string
+  video_local_path?: string
   composed_image?: string
+  composed_image_local_path?: string
   scene_id?: string
   scene?: Scene
   created_at: string

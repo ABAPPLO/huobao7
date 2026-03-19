@@ -8,7 +8,11 @@ export interface VideoGeneration {
   prompt: string
   model?: string
   image_url?: string
+  image_local_path?: string  // 源图片本地路径
   first_frame_url?: string
+  first_frame_local_path?: string  // 首帧本地路径
+  last_frame_url?: string
+  last_frame_local_path?: string  // 尾帧本地路径
   duration?: number
   fps?: number
   resolution?: string
@@ -18,7 +22,7 @@ export interface VideoGeneration {
   camera_motion?: string
   seed?: number
   video_url?: string
-  local_path?: string
+  local_path?: string  // 视频本地路径
   status: VideoStatus
   task_id?: string
   error_msg?: string
@@ -39,6 +43,7 @@ export interface GenerateVideoRequest {
   drama_id: string
   image_gen_id?: number
   image_url?: string
+  image_local_path?: string  // 本地图片路径
   prompt: string
   provider?: string
   model?: string
@@ -51,7 +56,9 @@ export interface GenerateVideoRequest {
   seed?: number
   reference_mode?: string   // 参考图模式：single, first_last, multiple, none
   first_frame_url?: string  // 首帧图片URL
+  first_frame_local_path?: string  // 首帧本地路径
   last_frame_url?: string   // 尾帧图片URL
+  last_frame_local_path?: string  // 尾帧本地路径
   reference_image_urls?: string[]  // 多图参考模式
 }
 

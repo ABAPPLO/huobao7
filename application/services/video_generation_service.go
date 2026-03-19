@@ -506,18 +506,21 @@ func (s *VideoGenerationService) completeVideoGeneration(videoGenID uint, videoU
 		}
 	}
 
-	// 下载首帧图片到本地存储（仅用于缓存，不更新数据库）
+	// 下载首帧图片到本地存储并保存路径
+	var localFirstFramePath *string
 	if firstFrameURL != nil && *firstFrameURL != "" && s.localStorage != nil {
-		_, err := s.localStorage.DownloadFromURL(*firstFrameURL, "video_frames")
+		downloadResult, err := s.localStorage.DownloadFromURLWithPath(*firstFrameURL, "video_frames")
 		if err != nil {
 			s.log.Warnw("Failed to download first frame to local storage",
 				"error", err,
 				"id", videoGenID,
 				"original_url", *firstFrameURL)
 		} else {
-			s.log.Infow("First frame downloaded to local storage for caching",
+			localFirstFramePath = &downloadResult.RelativePath
+			s.log.Infow("First frame downloaded to local storage",
 				"id", videoGenID,
-				"original_url", *firstFrameURL)
+				"original_url", *firstFrameURL,
+				"local_path", downloadResult.RelativePath)
 		}
 	}
 
@@ -540,6 +543,9 @@ func (s *VideoGenerationService) completeVideoGeneration(videoGenID uint, videoU
 	if firstFrameURL != nil {
 		updates["first_frame_url"] = *firstFrameURL
 	}
+	if localFirstFramePath != nil {
+		updates["first_frame_local_path"] = *localFirstFramePath
+	}
 
 	if err := s.db.Model(&models.VideoGeneration{}).Where("id = ?", videoGenID).Updates(updates).Error; err != nil {
 		s.log.Errorw("Failed to update video generation", "error", err, "id", videoGenID)
@@ -549,9 +555,13 @@ func (s *VideoGenerationService) completeVideoGeneration(videoGenID uint, videoU
 	var videoGen models.VideoGeneration
 	if err := s.db.First(&videoGen, videoGenID).Error; err == nil {
 		if videoGen.StoryboardID != nil {
-			// 更新 Storyboard 的 video_url 和 duration
+			// 更新 Storyboard 的 video_url、video_local_path 和 duration
 			storyboardUpdates := map[string]interface{}{
 				"video_url": videoURL,
+			}
+			// 保存视频本地路径
+			if localVideoPath != nil {
+				storyboardUpdates["video_local_path"] = *localVideoPath
 			}
 			// 只有当 duration 大于 0 时才更新，避免用无效的 0 值覆盖
 			if duration != nil && *duration > 0 {
@@ -560,7 +570,7 @@ func (s *VideoGenerationService) completeVideoGeneration(videoGenID uint, videoU
 			if err := s.db.Model(&models.Storyboard{}).Where("id = ?", *videoGen.StoryboardID).Updates(storyboardUpdates).Error; err != nil {
 				s.log.Warnw("Failed to update storyboard", "storyboard_id", *videoGen.StoryboardID, "error", err)
 			} else {
-				s.log.Infow("Updated storyboard with video info", "storyboard_id", *videoGen.StoryboardID, "duration", duration)
+				s.log.Infow("Updated storyboard with video info", "storyboard_id", *videoGen.StoryboardID, "duration", duration, "local_path", localVideoPath)
 			}
 		}
 	}
