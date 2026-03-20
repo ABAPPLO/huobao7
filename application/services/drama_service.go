@@ -585,8 +585,8 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 	return nil
 }
 
+
 func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) error {
-	// 转换dramaID
 	id, err := strconv.ParseUint(dramaID, 10, 32)
 	if err != nil {
 		return fmt.Errorf("invalid drama ID")
@@ -594,294 +594,232 @@ func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) er
 	dramaIDUint := uint(id)
 
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaIDUint).First(&drama).Error; err != nil {
+	if err := s.db.First(&drama, dramaIDUint).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("drama not found")
 		}
 		return err
 	}
 
-	// 查询现有章节（包含软删除的），建立 episode_num -> Episode 映射
+	// 查询现有章节（包含软删除的）
 	var existingEpisodes []models.Episode
 	if err := s.db.Unscoped().Where("drama_id = ?", dramaIDUint).Find(&existingEpisodes).Error; err != nil {
 		s.log.Errorw("Failed to query existing episodes", "error", err)
 		return err
 	}
 
-	// 建立映射：分别记录未删除和软删除的
-	activeMap := make(map[int]models.Episode)
-	deletedMap := make(map[int]models.Episode)
-	for _, ep := range existingEpisodes {
-		if ep.DeletedAt.Valid {
-			// 软删除的记录
-			if _, exists := deletedMap[ep.EpisodeNum]; !exists {
-				deletedMap[ep.EpisodeNum] = ep
-			}
-		} else {
-			// 未删除的记录
-			activeMap[ep.EpisodeNum] = ep
-		}
-	}
+	// 批量获取数据量，避免 N+1 查询
+	dataCounts := s.getEpisodeDataCounts(dramaIDUint)
 
-	s.log.Infow("SaveEpisodes: episode status",
-		"drama_id", dramaIDUint,
-		"active_count", len(activeMap),
-		"deleted_count", len(deletedMap))
+	// 建立映射
+	activeMap, deletedMap := s.buildEpisodeMaps(existingEpisodes)
 
-	// 增量更新：遍历请求中的章节
+	s.log.Infow("SaveEpisodes: episode status", "drama_id", dramaIDUint,
+		"active_count", len(activeMap), "deleted_count", len(deletedMap))
+
+	// 增量更新
 	for _, ep := range req.Episodes {
 		activeRecord, hasActive := activeMap[ep.EpisodeNum]
 		deletedRecord, hasDeleted := deletedMap[ep.EpisodeNum]
 
-		if hasActive && hasDeleted {
-			// 同时存在未删除和软删除的记录
-			// 检查哪个有分镜数据
-			var activeStoryboardCount, deletedStoryboardCount int64
-			s.db.Model(&models.Storyboard{}).Where("episode_id = ?", activeRecord.ID).Count(&activeStoryboardCount)
-			s.db.Model(&models.Storyboard{}).Where("episode_id = ?", deletedRecord.ID).Count(&deletedStoryboardCount)
-
-			s.log.Infow("Duplicate episode_number found",
-				"episode_num", ep.EpisodeNum,
-				"active_id", activeRecord.ID,
-				"active_storyboards", activeStoryboardCount,
-				"deleted_id", deletedRecord.ID,
-				"deleted_storyboards", deletedStoryboardCount)
-
-			if deletedStoryboardCount > 0 && activeStoryboardCount == 0 {
-				// 软删除的记录有数据，未删除的没有 -> 删除未删除的，恢复软删除的
-				s.log.Infow("Replacing empty active episode with deleted episode that has data",
-					"episode_num", ep.EpisodeNum,
-					"delete_active_id", activeRecord.ID,
-					"restore_deleted_id", deletedRecord.ID)
-
-				// 硬删除空的未删除记录
-				s.db.Unscoped().Delete(&models.Episode{}, activeRecord.ID)
-
-				// 恢复软删除的记录并更新
-				updates := map[string]interface{}{
-					"title":          ep.Title,
-					"description":    ep.Description,
-					"script_content": ep.ScriptContent,
-					"duration":       ep.Duration,
-					"updated_at":     time.Now(),
-					"deleted_at":     nil,
-				}
-				if err := s.db.Unscoped().Model(&deletedRecord).Updates(updates).Error; err != nil {
-					s.log.Errorw("Failed to restore episode", "error", err, "episode_num", ep.EpisodeNum)
-					continue
-				}
-				s.log.Infow("Episode restored with data", "episode_id", deletedRecord.ID, "episode_num", ep.EpisodeNum)
-			} else {
-				// 未删除的记录有数据或两个都没有数据，更新未删除的，删除软删除的
-				s.db.Unscoped().Delete(&models.Episode{}, deletedRecord.ID)
-				updates := map[string]interface{}{
-					"title":          ep.Title,
-					"description":    ep.Description,
-					"script_content": ep.ScriptContent,
-					"duration":       ep.Duration,
-					"updated_at":     time.Now(),
-				}
-				if err := s.db.Model(&activeRecord).Updates(updates).Error; err != nil {
-					s.log.Errorw("Failed to update episode", "error", err, "episode_num", ep.EpisodeNum)
-					continue
-				}
-				s.log.Infow("Episode updated", "episode_id", activeRecord.ID, "episode_num", ep.EpisodeNum)
-			}
-		} else if hasActive {
-			// 只有未删除的记录
-			updates := map[string]interface{}{
-				"title":          ep.Title,
-				"description":    ep.Description,
-				"script_content": ep.ScriptContent,
-				"duration":       ep.Duration,
-				"updated_at":     time.Now(),
-			}
-			if err := s.db.Model(&activeRecord).Updates(updates).Error; err != nil {
-				s.log.Errorw("Failed to update episode", "error", err, "episode_num", ep.EpisodeNum)
-				continue
-			}
-			s.log.Infow("Episode updated", "episode_id", activeRecord.ID, "episode_num", ep.EpisodeNum)
-		} else if hasDeleted {
-			// 只有软删除的记录，恢复它
-			updates := map[string]interface{}{
-				"title":          ep.Title,
-				"description":    ep.Description,
-				"script_content": ep.ScriptContent,
-				"duration":       ep.Duration,
-				"updated_at":     time.Now(),
-				"deleted_at":     nil,
-			}
-			if err := s.db.Unscoped().Model(&deletedRecord).Updates(updates).Error; err != nil {
-				s.log.Errorw("Failed to restore episode", "error", err, "episode_num", ep.EpisodeNum)
-				continue
-			}
-			s.log.Infow("Episode restored", "episode_id", deletedRecord.ID, "episode_num", ep.EpisodeNum)
-		} else {
-			// 章节不存在，新建
-			episode := models.Episode{
-				DramaID:       dramaIDUint,
-				EpisodeNum:    ep.EpisodeNum,
-				Title:         ep.Title,
-				Description:   ep.Description,
-				ScriptContent: ep.ScriptContent,
-				Duration:      ep.Duration,
-				Status:        "draft",
-			}
-
-			if err := s.db.Create(&episode).Error; err != nil {
-				s.log.Errorw("Failed to create episode", "error", err, "episode_num", ep.EpisodeNum)
-				continue
-			}
-			s.log.Infow("Episode created", "episode_id", episode.ID, "episode_num", ep.EpisodeNum)
+		switch {
+		case hasActive && hasDeleted:
+			s.handleDuplicateEpisode(ep, activeRecord, deletedRecord, dataCounts)
+		case hasActive:
+			s.updateEpisode(&activeRecord, ep, false)
+		case hasDeleted:
+			s.updateEpisode(&deletedRecord, ep, true)
+		default:
+			s.createEpisode(dramaIDUint, ep)
 		}
 	}
 
-	// 注意：不在请求中的章节保留不动，不做删除操作
-
-	// 后处理：检查并清理同一 episode_number 的重复记录
-	// 如果存在未删除（无数据）+ 软删除（有数据）的情况，恢复有数据的
+	// 后处理：清理可能的重复
 	s.cleanDuplicateEpisodesForDrama(dramaIDUint)
 
-	if err := s.db.Model(&drama).Update("updated_at", time.Now()).Error; err != nil {
-		s.log.Errorw("Failed to update drama timestamp", "error", err)
-	}
-
+	s.db.Model(&drama).Update("updated_at", time.Now())
 	s.log.Infow("Episodes saved", "drama_id", dramaID, "count", len(req.Episodes))
 	return nil
 }
 
-// DeleteEpisode 删除指定章节及其关联数据
+// episodeWithCount 用于记录章节数据量
+type episodeWithCount struct {
+	storyboardCnt int64
+	sceneCnt      int64
+}
+
+// getEpisodeDataCounts 批量查询章节的 storyboards 和 scenes 数量
+func (s *DramaService) getEpisodeDataCounts(dramaID uint) map[uint]*episodeWithCount {
+	result := make(map[uint]*episodeWithCount)
+
+	// 一次性查询 storyboards 数量
+	type countResult struct {
+		EpisodeID uint
+		Count     int64
+	}
+	var storyboardCounts []countResult
+	s.db.Model(&models.Storyboard{}).
+		Select("episode_id, COUNT(*) as count").
+		Where("episode_id IN (SELECT id FROM episodes WHERE drama_id = ?)", dramaID).
+		Group("episode_id").
+		Find(&storyboardCounts)
+
+	var sceneCounts []countResult
+	s.db.Model(&models.Scene{}).
+		Select("episode_id, COUNT(*) as count").
+		Where("episode_id IN (SELECT id FROM episodes WHERE drama_id = ?)", dramaID).
+		Group("episode_id").
+		Find(&sceneCounts)
+
+	for _, sc := range storyboardCounts {
+		if result[sc.EpisodeID] == nil {
+			result[sc.EpisodeID] = &episodeWithCount{}
+		}
+		result[sc.EpisodeID].storyboardCnt = sc.Count
+	}
+	for _, sc := range sceneCounts {
+		if result[sc.EpisodeID] == nil {
+			result[sc.EpisodeID] = &episodeWithCount{}
+		}
+		result[sc.EpisodeID].sceneCnt = sc.Count
+	}
+	return result
+}
+
+// buildEpisodeMaps 构建活跃和软删除的章节映射
+func (s *DramaService) buildEpisodeMaps(episodes []models.Episode) (activeMap, deletedMap map[int]models.Episode) {
+	activeMap = make(map[int]models.Episode)
+	deletedMap = make(map[int]models.Episode)
+	for _, ep := range episodes {
+		if ep.DeletedAt.Valid {
+			if _, exists := deletedMap[ep.EpisodeNum]; !exists {
+				deletedMap[ep.EpisodeNum] = ep
+			}
+		} else {
+			activeMap[ep.EpisodeNum] = ep
+		}
+	}
+	return
+}
+
+// handleDuplicateEpisode 处理重复的章节
+func (s *DramaService) handleDuplicateEpisode(ep models.Episode, activeRecord, deletedRecord models.Episode, dataCounts map[uint]*episodeWithCount) {
+	activeCnt := int64(0)
+	deletedCnt := int64(0)
+	if dataCounts[activeRecord.ID] != nil {
+		activeCnt = dataCounts[activeRecord.ID].storyboardCnt + dataCounts[activeRecord.ID].sceneCnt
+	}
+	if dataCounts[deletedRecord.ID] != nil {
+		deletedCnt = dataCounts[deletedRecord.ID].storyboardCnt + dataCounts[deletedRecord.ID].sceneCnt
+	}
+
+	s.log.Infow("Duplicate episode_number found", "episode_num", ep.EpisodeNum,
+		"active_id", activeRecord.ID, "active_data", activeCnt,
+		"deleted_id", deletedRecord.ID, "deleted_data", deletedCnt)
+
+	if deletedCnt > 0 && activeCnt == 0 {
+		s.db.Unscoped().Delete(&models.Episode{}, activeRecord.ID)
+		s.updateEpisode(&deletedRecord, ep, true)
+	} else {
+		s.db.Unscoped().Delete(&models.Episode{}, deletedRecord.ID)
+		s.updateEpisode(&activeRecord, ep, false)
+	}
+}
+
+// updateEpisode 更新章节
+func (s *DramaService) updateEpisode(record *models.Episode, ep models.Episode, restore bool) {
+	updates := map[string]interface{}{
+		"title":          ep.Title,
+		"description":    ep.Description,
+		"script_content": ep.ScriptContent,
+		"duration":       ep.Duration,
+		"updated_at":     time.Now(),
+	}
+	if restore {
+		updates["deleted_at"] = nil
+	}
+
+	db := s.db
+	if restore {
+		db = s.db.Unscoped()
+	}
+
+	if err := db.Model(record).Updates(updates).Error; err != nil {
+		s.log.Errorw("Failed to update episode", "error", err, "episode_num", ep.EpisodeNum)
+		return
+	}
+
+	if restore {
+		s.log.Infow("Episode restored", "episode_id", record.ID, "episode_num", ep.EpisodeNum)
+	} else {
+		s.log.Infow("Episode updated", "episode_id", record.ID, "episode_num", ep.EpisodeNum)
+	}
+}
+
+// createEpisode 创建新章节
+func (s *DramaService) createEpisode(dramaID uint, ep models.Episode) {
+	episode := models.Episode{
+		DramaID:       dramaID,
+		EpisodeNum:    ep.EpisodeNum,
+		Title:         ep.Title,
+		Description:   ep.Description,
+		ScriptContent: ep.ScriptContent,
+		Duration:      ep.Duration,
+		Status:        "draft",
+	}
+	if err := s.db.Create(&episode).Error; err != nil {
+		s.log.Errorw("Failed to create episode", "error", err, "episode_num", ep.EpisodeNum)
+		return
+	}
+	s.log.Infow("Episode created", "episode_id", episode.ID, "episode_num", ep.EpisodeNum)
+}
+
+// DeleteEpisode 删除指定章节
 func (s *DramaService) DeleteEpisode(episodeID string) error {
 	id, err := strconv.ParseUint(episodeID, 10, 32)
 	if err != nil {
 		return fmt.Errorf("invalid episode ID")
 	}
-	episodeIDUint := uint(id)
-
 	var episode models.Episode
-	if err := s.db.First(&episode, episodeIDUint).Error; err != nil {
+	if err := s.db.First(&episode, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("episode not found")
 		}
 		return err
 	}
-
-	// 删除章节（GORM 的 CASCADE 会自动删除关联的 Storyboard、Scene 等）
 	if err := s.db.Delete(&episode).Error; err != nil {
 		s.log.Errorw("Failed to delete episode", "error", err, "episode_id", episodeID)
 		return err
 	}
-
 	s.log.Infow("Episode deleted", "episode_id", episodeID, "episode_num", episode.EpisodeNum)
 	return nil
 }
 
-// CleanDuplicateEpisodes 清理重复的章节记录
-// 对于每个 drama_id + episode_number 组合，如果存在多个记录：
-// - 保留有分镜数据的记录（优先未删除的，其次软删除的）
-// - 删除无数据的记录
+// CleanDuplicateEpisodes 清理所有重复章节（启动时调用）
 func (s *DramaService) CleanDuplicateEpisodes() error {
 	s.log.Infow("Starting duplicate episodes cleanup...")
 
-	// 查询所有章节（包含软删除的）
-	var allEpisodes []models.Episode
-	if err := s.db.Unscoped().Find(&allEpisodes).Error; err != nil {
-		s.log.Errorw("Failed to query all episodes", "error", err)
-		return err
+	var duplicateKeys []struct {
+		DramaID    uint
+		EpisodeNum int
+		Count      int
+	}
+	s.db.Unscoped().Table("episodes").
+		Select("drama_id, episode_number, COUNT(*) as count").
+		Group("drama_id, episode_number").
+		Having("COUNT(*) > 1").
+		Find(&duplicateKeys)
+
+	if len(duplicateKeys) == 0 {
+		s.log.Infow("No duplicate episodes found")
+		return nil
 	}
 
-	// 按 drama_id + episode_number 分组
-	type episodeGroup struct {
-		active  []models.Episode
-		deleted []models.Episode
-	}
-	groups := make(map[string]*episodeGroup)
-	for _, ep := range allEpisodes {
-		key := fmt.Sprintf("%d_%d", ep.DramaID, ep.EpisodeNum)
-		if groups[key] == nil {
-			groups[key] = &episodeGroup{}
-		}
-		if ep.DeletedAt.Valid {
-			groups[key].deleted = append(groups[key].deleted, ep)
-		} else {
-			groups[key].active = append(groups[key].active, ep)
-		}
-	}
+	s.log.Infow("Found duplicate episodes", "duplicate_count", len(duplicateKeys))
 
 	cleanedCount := 0
-	for _, group := range groups {
-		// 只有当有重复时才需要清理
-		totalCount := len(group.active) + len(group.deleted)
-		if totalCount <= 1 {
-			continue
-		}
-
-		// 检查每个记录的分镜数量
-		type episodeWithCount struct {
-			ep            models.Episode
-			storyboardCnt int64
-			sceneCnt      int64
-			isDeleted     bool
-		}
-		var allRecords []episodeWithCount
-
-		for _, ep := range group.active {
-			var storyboardCnt, sceneCnt int64
-			s.db.Model(&models.Storyboard{}).Where("episode_id = ?", ep.ID).Count(&storyboardCnt)
-			s.db.Model(&models.Scene{}).Where("episode_id = ?", ep.ID).Count(&sceneCnt)
-			allRecords = append(allRecords, episodeWithCount{ep, storyboardCnt, sceneCnt, false})
-		}
-		for _, ep := range group.deleted {
-			var storyboardCnt, sceneCnt int64
-			s.db.Model(&models.Storyboard{}).Where("episode_id = ?", ep.ID).Count(&storyboardCnt)
-			s.db.Model(&models.Scene{}).Where("episode_id = ?", ep.ID).Count(&sceneCnt)
-			allRecords = append(allRecords, episodeWithCount{ep, storyboardCnt, sceneCnt, true})
-		}
-
-		// 找出应该保留的记录（有数据的优先，未删除的优先）
-		var bestRecord *episodeWithCount
-		for i := range allRecords {
-			rec := &allRecords[i]
-			if bestRecord == nil {
-				bestRecord = rec
-				continue
-			}
-			// 比较逻辑：有数据的优先
-			bestData := bestRecord.storyboardCnt + bestRecord.sceneCnt
-			recData := rec.storyboardCnt + rec.sceneCnt
-			if recData > bestData {
-				bestRecord = rec
-			} else if recData == bestData && !rec.isDeleted && bestRecord.isDeleted {
-				// 数据相同时，未删除的优先
-				bestRecord = rec
-			}
-		}
-
-		// 删除其他记录
-		for _, rec := range allRecords {
-			if rec.ep.ID == bestRecord.ep.ID {
-				// 如果最佳记录是软删除的，恢复它
-				if bestRecord.isDeleted {
-					s.db.Unscoped().Model(&models.Episode{}).Where("id = ?", bestRecord.ep.ID).
-						Update("deleted_at", nil)
-					s.log.Infow("Restored episode with data",
-						"episode_id", bestRecord.ep.ID,
-						"drama_id", bestRecord.ep.DramaID,
-						"episode_num", bestRecord.ep.EpisodeNum,
-						"storyboards", bestRecord.storyboardCnt)
-				}
-				continue
-			}
-			// 硬删除其他记录
-			s.db.Unscoped().Delete(&models.Episode{}, rec.ep.ID)
-			s.log.Infow("Deleted duplicate episode",
-				"episode_id", rec.ep.ID,
-				"drama_id", rec.ep.DramaID,
-				"episode_num", rec.ep.EpisodeNum,
-				"was_deleted", rec.isDeleted,
-				"storyboards", rec.storyboardCnt)
-			cleanedCount++
-		}
+	for _, dk := range duplicateKeys {
+		cleanedCount += s.cleanDuplicatesForEpisodeNum(dk.DramaID, dk.EpisodeNum)
 	}
 
 	s.log.Infow("Duplicate episodes cleanup completed", "cleaned_count", cleanedCount)
@@ -890,86 +828,67 @@ func (s *DramaService) CleanDuplicateEpisodes() error {
 
 // cleanDuplicateEpisodesForDrama 清理指定 drama 的重复章节
 func (s *DramaService) cleanDuplicateEpisodesForDrama(dramaID uint) {
-	// 查询该 drama 的所有章节（包含软删除的）
-	var allEpisodes []models.Episode
-	if err := s.db.Unscoped().Where("drama_id = ?", dramaID).Find(&allEpisodes).Error; err != nil {
-		s.log.Errorw("Failed to query episodes for cleanup", "error", err, "drama_id", dramaID)
-		return
+	var duplicateKeys []struct {
+		EpisodeNum int
+		Count      int
 	}
+	s.db.Unscoped().Table("episodes").
+		Select("episode_number, COUNT(*) as count").
+		Where("drama_id = ?", dramaID).
+		Group("episode_number").
+		Having("COUNT(*) > 1").
+		Find(&duplicateKeys)
 
-	// 按 episode_number 分组
-	type episodeWithCount struct {
-		ep            models.Episode
-		storyboardCnt int64
-		sceneCnt      int64
-		isDeleted     bool
-	}
-	groups := make(map[int][]episodeWithCount)
-	for _, ep := range allEpisodes {
-		var storyboardCnt, sceneCnt int64
-		s.db.Model(&models.Storyboard{}).Where("episode_id = ?", ep.ID).Count(&storyboardCnt)
-		s.db.Model(&models.Scene{}).Where("episode_id = ?", ep.ID).Count(&sceneCnt)
-		groups[ep.EpisodeNum] = append(groups[ep.EpisodeNum], episodeWithCount{
-			ep:            ep,
-			storyboardCnt: storyboardCnt,
-			sceneCnt:      sceneCnt,
-			isDeleted:     ep.DeletedAt.Valid,
-		})
-	}
-
-	// 对于每个 episode_number，如果有多个记录，清理重复
-	for episodeNum, records := range groups {
-		if len(records) <= 1 {
-			continue
-		}
-
-		s.log.Infow("Found duplicate episodes, cleaning up",
-			"drama_id", dramaID,
-			"episode_num", episodeNum,
-			"count", len(records))
-
-		// 找出最佳记录：有数据的优先，未删除的优先
-		var bestRecord *episodeWithCount
-		for i := range records {
-			rec := &records[i]
-			if bestRecord == nil {
-				bestRecord = rec
-				continue
-			}
-			bestData := bestRecord.storyboardCnt + bestRecord.sceneCnt
-			recData := rec.storyboardCnt + rec.sceneCnt
-			if recData > bestData {
-				bestRecord = rec
-			} else if recData == bestData && !rec.isDeleted && bestRecord.isDeleted {
-				bestRecord = rec
-			}
-		}
-
-		// 删除其他记录，恢复最佳记录（如果需要）
-		for _, rec := range records {
-			if rec.ep.ID == bestRecord.ep.ID {
-				if bestRecord.isDeleted {
-					// 恢复软删除的记录
-					s.db.Unscoped().Model(&models.Episode{}).Where("id = ?", bestRecord.ep.ID).
-						Update("deleted_at", nil)
-					s.log.Infow("Restored episode with data during save",
-						"episode_id", bestRecord.ep.ID,
-						"episode_num", episodeNum,
-						"storyboards", bestRecord.storyboardCnt)
-				}
-				continue
-			}
-			// 硬删除其他记录
-			s.db.Unscoped().Delete(&models.Episode{}, rec.ep.ID)
-			s.log.Infow("Removed duplicate episode during save",
-				"episode_id", rec.ep.ID,
-				"episode_num", episodeNum,
-				"was_deleted", rec.isDeleted,
-				"storyboards", rec.storyboardCnt)
-		}
+	for _, dk := range duplicateKeys {
+		s.cleanDuplicatesForEpisodeNum(dramaID, dk.EpisodeNum)
 	}
 }
 
+// cleanDuplicatesForEpisodeNum 清理指定 drama + episode_number 的重复记录
+func (s *DramaService) cleanDuplicatesForEpisodeNum(dramaID uint, episodeNum int) int {
+	var episodes []models.Episode
+	s.db.Unscoped().Where("drama_id = ? AND episode_number = ?", dramaID, episodeNum).Find(&episodes)
+
+	if len(episodes) <= 1 {
+		return 0
+	}
+
+	dataCounts := s.getEpisodeDataCounts(dramaID)
+
+	var bestEpisode *models.Episode
+	bestScore := int64(-1)
+	bestIsDeleted := false
+
+	for i := range episodes {
+		ep := &episodes[i]
+		cnt := dataCounts[ep.ID]
+		score := int64(0)
+		isDeleted := ep.DeletedAt.Valid
+		if cnt != nil {
+			score = cnt.storyboardCnt + cnt.sceneCnt
+		}
+		if score > bestScore || (score == bestScore && !isDeleted && bestIsDeleted) {
+			bestScore = score
+			bestEpisode = ep
+			bestIsDeleted = isDeleted
+		}
+	}
+
+	cleanedCount := 0
+	for _, ep := range episodes {
+		if ep.ID == bestEpisode.ID {
+			if bestIsDeleted {
+				s.db.Unscoped().Model(&models.Episode{}).Where("id = ?", ep.ID).Update("deleted_at", nil)
+				s.log.Infow("Restored episode", "episode_id", ep.ID, "episode_num", episodeNum)
+			}
+			continue
+		}
+		s.db.Unscoped().Delete(&models.Episode{}, ep.ID)
+		s.log.Infow("Removed duplicate episode", "episode_id", ep.ID, "episode_num", episodeNum)
+		cleanedCount++
+	}
+	return cleanedCount
+}
 func (s *DramaService) SaveProgress(dramaID string, req *SaveProgressRequest) error {
 	var drama models.Drama
 	if err := s.db.Where("id = ? ", dramaID).First(&drama).Error; err != nil {
