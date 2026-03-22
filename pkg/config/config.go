@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/viper"
 )
@@ -69,6 +70,11 @@ func LoadConfig() (*Config, error) {
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// 支持 SERVER_HOST 环境变量覆盖 storage.base_url
+	if serverHost := os.Getenv("SERVER_HOST"); serverHost != "" {
+		config.Storage.BaseURL = fmt.Sprintf("%s/static", serverHost)
 	}
 
 	return &config, nil

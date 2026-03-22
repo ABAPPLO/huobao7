@@ -218,6 +218,7 @@ func (h *ImageGenerationHandler) UploadImage(c *gin.Context) {
 		DramaID      uint   `json:"drama_id" binding:"required"`
 		FrameType    string `json:"frame_type" binding:"required"`
 		ImageURL     string `json:"image_url" binding:"required"`
+		LocalPath    string `json:"local_path"`
 		Prompt       string `json:"prompt"`
 	}
 
@@ -231,6 +232,7 @@ func (h *ImageGenerationHandler) UploadImage(c *gin.Context) {
 		DramaID:      req.DramaID,
 		FrameType:    req.FrameType,
 		ImageURL:     req.ImageURL,
+		LocalPath:    req.LocalPath,
 		Prompt:       req.Prompt,
 	})
 
