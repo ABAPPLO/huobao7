@@ -3777,6 +3777,7 @@ const uploadImage = () => {
 
       const result = await response.json();
       const imageUrl = result.data?.url;
+      const localPath = result.data?.local_path;
 
       if (imageUrl && currentStoryboard.value) {
         // 创建图片生成记录（关联到当前镜头和帧类型）
@@ -3785,6 +3786,7 @@ const uploadImage = () => {
           drama_id: parseInt(dramaId),
           frame_type: selectedFrameType.value || "first",
           image_url: imageUrl,
+          local_path: localPath,
           prompt: currentFramePrompt.value || "用户上传图片",
         });
 

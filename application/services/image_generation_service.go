@@ -656,6 +656,7 @@ type UploadImageRequest struct {
 	DramaID      uint   `json:"drama_id"`
 	FrameType    string `json:"frame_type"`
 	ImageURL     string `json:"image_url"`
+	LocalPath    string `json:"local_path"`
 	Prompt       string `json:"prompt"`
 }
 
@@ -688,6 +689,7 @@ func (s *ImageGenerationService) CreateImageFromUpload(req *UploadImageRequest) 
 		Prompt:       prompt,
 		Model:        "upload",
 		ImageURL:     &req.ImageURL,
+		LocalPath:    &req.LocalPath,
 		Status:       models.ImageStatusCompleted,
 		CompletedAt:  &now,
 	}
