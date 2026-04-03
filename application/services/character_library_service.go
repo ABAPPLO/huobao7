@@ -322,7 +322,7 @@ func (s *CharacterLibraryService) GenerateCharacterImage(characterID string, ima
 		return nil, err
 	}
 
-	// 构建生成提示词 - 使用详细的外貌描述，添加干净背景要求
+	// 构建生成提示词 - 使用详细的外貌描述，添加多角度视图要求
 	prompt := ""
 
 	// 优先使用appearance字段，它包含了最详细的外貌描述
@@ -338,6 +338,9 @@ func (s *CharacterLibraryService) GenerateCharacterImage(characterID string, ima
 	if drama.Style != "" {
 		prompt += ", " + drama.Style
 	}
+
+	// 添加多角度视图指令
+	prompt += ". Character design sheet showing multiple views: front view, left side view, right side view, back view, 3/4 angle view, arranged in a 2x3 grid layout on a clean white background, each view showing the same character with consistent appearance, full body visible in each view, no overlapping between views"
 	// 调用图片生成服务
 	dramaIDStr := fmt.Sprintf("%d", character.DramaID)
 	imageType := "character"
@@ -348,7 +351,7 @@ func (s *CharacterLibraryService) GenerateCharacterImage(characterID string, ima
 		Prompt:      prompt,
 		Provider:    "openai",    // 或从配置读取
 		Model:       modelName,   // 使用用户指定的模型
-		Size:        "2560x1440", // 3,686,400像素，满足API最低要求（16:9比例）
+		Size:        "2560x2560", // 正方形，适合多角度视图拼合布局
 		Quality:     "standard",
 	}
 

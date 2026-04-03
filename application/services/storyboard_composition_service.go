@@ -30,6 +30,13 @@ type SceneCharacterInfo struct {
 	LocalPath *string `json:"local_path,omitempty"`
 }
 
+type ScenePropInfo struct {
+	ID        uint    `json:"id"`
+	Name      string  `json:"name"`
+	ImageURL  *string `json:"image_url,omitempty"`
+	LocalPath *string `json:"local_path,omitempty"`
+}
+
 type SceneBackgroundInfo struct {
 	ID        uint    `json:"id"`
 	Location  string  `json:"location"`
@@ -59,6 +66,7 @@ type SceneCompositionInfo struct {
 	ImagePrompt           *string              `json:"image_prompt,omitempty"`
 	VideoPrompt           *string              `json:"video_prompt,omitempty"`
 	Characters            []SceneCharacterInfo `json:"characters"`
+	Props                 []ScenePropInfo      `json:"props"`
 	Background            *SceneBackgroundInfo `json:"background"`
 	SceneID               *uint                `json:"scene_id"`
 	ComposedImage         *string              `json:"composed_image,omitempty"`
@@ -86,6 +94,7 @@ func (s *StoryboardCompositionService) GetScenesForEpisode(episodeID string) ([]
 	var storyboards []models.Storyboard
 	if err := s.db.Where("episode_id = ?", episodeID).
 		Preload("Characters").
+			Preload("Props").
 		Order("storyboard_number ASC").
 		Find(&storyboards).Error; err != nil {
 		return nil, fmt.Errorf("failed to load storyboards: %w", err)
@@ -220,6 +229,19 @@ func (s *StoryboardCompositionService) GetScenesForEpisode(episodeID string) ([]
 			}
 		}
 
+
+			// 添加关联的道具信息
+			if len(storyboard.Props) > 0 {
+				for _, prop := range storyboard.Props {
+					storyboardProp := ScenePropInfo{
+						ID:        prop.ID,
+						Name:      prop.Name,
+						ImageURL:  prop.ImageURL,
+						LocalPath: prop.LocalPath,
+					}
+					storyboardInfo.Props = append(storyboardInfo.Props, storyboardProp)
+				}
+			}
 		// 添加场景信息
 		if storyboard.SceneID != nil {
 			if scene, ok := sceneMap[*storyboard.SceneID]; ok {

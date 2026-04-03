@@ -224,6 +224,7 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
       "bgm_prompt": "低沉紧张的弦乐，节奏缓慢，营造压抑悬疑氛围",
       "sound_effect": "金属碰撞声、灰尘飘散声、海浪拍打声",
       "characters": [159],
+      "props": [5, 8],
       "is_primary": true
     },
     {
@@ -244,6 +245,7 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
       "bgm_prompt": "紧张感逐渐升级的音效，低频持续音",
       "sound_effect": "呼吸声、金属摩擦声、海风呼啸声",
       "characters": [159, 160],
+      "props": [5],
       "is_primary": true
     }
   ]

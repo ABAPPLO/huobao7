@@ -175,11 +175,20 @@ func (s *PropService) processPropImageGeneration(taskID string, prop models.Prop
 		s.log.Warnw("Failed to load drama for prop image", "error", err, "drama_id", prop.DramaID)
 	}
 
-	// 准备生成参数 - 使用 drama 的分辨率或默认 2K
+	// 准备生成参数 - 使用正方形尺寸，适合多角度视图拼合布局
 	imageStyle := "Modern Japanese anime style"
 	imageSize := "2K" // 默认使用 2K（约 2560x2560，满足火山引擎的最低要求）
 	if drama.ImageResolution != "" {
 		imageSize = drama.ImageResolution
+	}
+
+	// 添加多角度视图指令到道具提示词
+	propPrompt := *prop.Prompt
+	propPrompt += ". Prop design sheet showing multiple views: front view, left side view, right side view, back view, top-down view, arranged in a grid layout on a clean white background, each view showing the same prop with consistent details and proportions, no overlapping between views"
+
+	// 添加风格信息
+	if drama.Style != "" {
+		propPrompt += ", " + drama.Style
 	}
 
 	// 创建生成请求
@@ -187,7 +196,7 @@ func (s *PropService) processPropImageGeneration(taskID string, prop models.Prop
 		DramaID:   fmt.Sprintf("%d", prop.DramaID),
 		PropID:    &prop.ID,
 		ImageType: string(models.ImageTypeProp),
-		Prompt:    *prop.Prompt,
+		Prompt:    propPrompt,
 		Size:      imageSize,
 		Style:     &imageStyle,
 		Provider:  s.config.AI.DefaultImageProvider, // 使用默认配置
