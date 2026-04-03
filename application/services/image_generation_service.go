@@ -275,7 +275,7 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 	prompt := imageGen.Prompt
 
 	// 如果drama有风格设置，添加风格提示词
-	if drama.Style != "" && drama.Style != "realistic" {
+	if drama.Style != "" {
 		stylePrompt := s.promptI18n.GetStylePrompt(drama.Style)
 		if stylePrompt != "" {
 			// 将风格提示词作为系统级约束添加到提示词前面

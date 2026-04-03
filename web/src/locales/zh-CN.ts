@@ -154,6 +154,7 @@ export default {
     style: '风格',
     stylePlaceholder: '请选择风格',
     styles: {
+      realistic: '写实',
       ghibli: '吉卜力',
       guoman: '国漫',
       wasteland: '末日废土',

@@ -335,7 +335,7 @@ func (s *CharacterLibraryService) GenerateCharacterImage(characterID string, ima
 	}
 
 	// 使用已经加载的 drama 的 style 信息
-	if drama.Style != "" && drama.Style != "realistic" {
+	if drama.Style != "" {
 		prompt += ", " + drama.Style
 	}
 	// 调用图片生成服务

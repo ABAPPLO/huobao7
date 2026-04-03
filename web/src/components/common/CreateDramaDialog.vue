@@ -47,6 +47,7 @@
           size="large"
           style="width: 100%"
         >
+          <el-option :label="$t('drama.styles.realistic')" value="realistic" />
           <el-option :label="$t('drama.styles.ghibli')" value="ghibli" />
           <el-option :label="$t('drama.styles.guoman')" value="guoman" />
           <el-option :label="$t('drama.styles.wasteland')" value="wasteland" />
