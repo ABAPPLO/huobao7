@@ -50,7 +50,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	storyboardHandler := handlers2.NewStoryboardHandler(db, cfg, log)
 	sceneHandler := handlers2.NewSceneHandler(db, log, imageGenService)
 	taskHandler := handlers2.NewTaskHandler(db, log)
-	framePromptService := services2.NewFramePromptService(db, cfg, log)
+	framePromptService := services2.NewFramePromptServiceWithDeps(db, cfg, log, imageGenService, localStoragePtr)
 	framePromptHandler := handlers2.NewFramePromptHandler(framePromptService, log)
 	audioExtractionHandler := handlers2.NewAudioExtractionHandler(log, cfg.Storage.LocalPath)
 	settingsHandler := handlers2.NewSettingsHandler(cfg, log)
@@ -209,6 +209,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			storyboards.DELETE("/:id", storyboardHandler.DeleteStoryboard)
 			storyboards.POST("/:id/props", propHandler.AssociateProps)
 			storyboards.POST("/:id/frame-prompt", framePromptHandler.GenerateFramePrompt)
+			storyboards.POST("/:id/action-sequence-images", framePromptHandler.GenerateActionSequenceImages)
 			storyboards.GET("/:id/frame-prompts", handlers2.GetStoryboardFramePrompts(db, log))
 		}
 

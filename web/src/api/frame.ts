@@ -26,6 +26,7 @@ export interface GenerateFramePromptResponse {
 export interface GenerateFramePromptRequest {
   frame_type: FrameType
   panel_count?: number // 分镜板格数，默认3
+  grid_type?: 4 | 6 | 9 // 动作序列宫格数
 }
 
 /**
@@ -73,10 +74,27 @@ export function generatePanelFrames(
 }
 
 /**
- * 生成动作序列（5格）
+ * 生成动作序列提示词
  */
-export function generateActionSequence(storyboardId: number): Promise<GenerateFramePromptResponse> {
-  return generateFramePrompt(storyboardId, { frame_type: 'action' })
+export function generateActionSequence(
+  storyboardId: number,
+  gridType: 4 | 6 | 9 = 9
+): Promise<GenerateFramePromptResponse> {
+  return generateFramePrompt(storyboardId, { frame_type: 'action', grid_type: gridType })
+}
+
+/**
+ * 逐帧串行生成动作序列宫格图片
+ */
+export function generateActionSequenceImages(
+  storyboardId: number,
+  dramaId: number,
+  gridType: 4 | 6 | 9 = 9
+): Promise<GenerateFramePromptResponse> {
+  return request.post<GenerateFramePromptResponse>(
+    `/storyboards/${storyboardId}/action-sequence-images`,
+    { drama_id: String(dramaId), grid_type: gridType }
+  )
 }
 
 // 帧提示词记录（从数据库查询）

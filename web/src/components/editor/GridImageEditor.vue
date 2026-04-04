@@ -259,7 +259,7 @@ const createGridImage = async () => {
     if (!ctx) throw new Error("无法创建 canvas 上下文");
 
     // 根据宫格类型设置画布尺寸和布局
-    const cellSize = 512; // 每个图片的尺寸
+    const cellSize = 1024; // 每个图片的尺寸
     const gap = 6; // 图片之间的间隙
     let cols = 2,
       rows = 2;
@@ -305,12 +305,12 @@ const createGridImage = async () => {
 
     // 将 canvas 转换为 blob
     const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob((b) => resolve(b!), "image/jpeg", 0.9);
+      canvas.toBlob((b) => resolve(b!), "image/png", 1.0);
     });
 
     // 上传合成的图片
     const formData = new FormData();
-    formData.append("file", blob, "grid-image.jpg");
+    formData.append("file", blob, "grid-image.png");
 
     const response = await fetch("/api/v1/upload/image", {
       method: "POST",

@@ -2,9 +2,20 @@ package services
 
 import (
 	"fmt"
+	"image"
+	"image/draw"
+	_ "image/jpeg"
+	"image/png"
+	"io"
+	"math"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/drama-generator/backend/domain/models"
+	"github.com/drama-generator/backend/infrastructure/storage"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"gorm.io/gorm"
@@ -12,12 +23,14 @@ import (
 
 // FramePromptService 处理帧提示词生成
 type FramePromptService struct {
-	db          *gorm.DB
-	aiService   *AIService
-	log         *logger.Logger
-	config      *config.Config
-	promptI18n  *PromptI18n
-	taskService *TaskService
+	db              *gorm.DB
+	aiService       *AIService
+	log             *logger.Logger
+	config          *config.Config
+	promptI18n      *PromptI18n
+	taskService     *TaskService
+	imageGenService *ImageGenerationService
+	localStorage    *storage.LocalStorage
 }
 
 // NewFramePromptService 创建帧提示词服务
@@ -29,6 +42,20 @@ func NewFramePromptService(db *gorm.DB, cfg *config.Config, log *logger.Logger) 
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
 		taskService: NewTaskService(db, log),
+	}
+}
+
+// NewFramePromptServiceWithDeps 创建带图片生成依赖的帧提示词服务
+func NewFramePromptServiceWithDeps(db *gorm.DB, cfg *config.Config, log *logger.Logger, imageGenService *ImageGenerationService, localStorage *storage.LocalStorage) *FramePromptService {
+	return &FramePromptService{
+		db:              db,
+		aiService:       NewAIService(db, log),
+		log:             log,
+		config:          cfg,
+		promptI18n:      NewPromptI18n(cfg),
+		taskService:     NewTaskService(db, log),
+		imageGenService: imageGenService,
+		localStorage:    localStorage,
 	}
 }
 
@@ -49,6 +76,7 @@ type GenerateFramePromptRequest struct {
 	FrameType    FrameType `json:"frame_type"`
 	// 可选参数
 	PanelCount int `json:"panel_count,omitempty"` // 分镜板格数，默认3
+	GridType   int `json:"grid_type,omitempty"`   // 动作序列宫格数，默认9
 }
 
 // FramePromptResponse 帧提示词响应
@@ -151,8 +179,12 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 		}
 		combinedPrompt := strings.Join(prompts, "\n---\n")
 		s.saveFramePrompt(req.StoryboardID, string(req.FrameType), combinedPrompt, "分镜板组合提示词", response.MultiFrame.Layout)
-	case FrameTypeAction:
-		response.MultiFrame = s.generateActionSequence(storyboard, scene, dramaStyle, model)
+		case FrameTypeAction:
+			gridType := req.GridType
+			if gridType != 4 && gridType != 6 && gridType != 9 {
+				gridType = 9
+			}
+			response.MultiFrame = s.generateActionSequence(storyboard, scene, dramaStyle, model, gridType)
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
 			prompts = append(prompts, frame.Prompt)
@@ -379,12 +411,16 @@ func (s *FramePromptService) generatePanelFrames(sb models.Storyboard, scene *mo
 }
 
 // generateActionSequence 生成动作序列提示词（3x3宫格）
-func (s *FramePromptService) generateActionSequence(sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *MultiFramePrompt {
+func (s *FramePromptService) generateActionSequence(sb models.Storyboard, scene *models.Scene, dramaStyle string, model string, gridType int) *MultiFramePrompt {
+	// 验证宫格类型
+	if gridType != 4 && gridType != 6 && gridType != 9 {
+		gridType = 9
+	}
 	// 构建上下文信息
 	contextInfo := s.buildStoryboardContext(sb, scene)
 
 	// 使用国际化提示词 - 专门为动作序列设计的提示词
-	systemPrompt := s.promptI18n.GetActionSequenceFramePrompt(dramaStyle)
+	systemPrompt := s.promptI18n.GetActionSequenceFramePrompt(dramaStyle, gridType)
 	userPrompt := s.promptI18n.FormatUserPrompt("frame_info", contextInfo)
 
 	// 调用AI生成（如果指定了模型则使用指定的模型）
@@ -403,41 +439,121 @@ func (s *FramePromptService) generateActionSequence(sb models.Storyboard, scene 
 	}
 
 	if err != nil {
-		s.log.Warnw("AI generation failed for action sequence, using fallback", "error", err)
-		// 降级方案：使用简单拼接
-		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "3x3 storyboard grid action sequence, character consistency, continuous movement progression")
-		return &MultiFramePrompt{
-			Layout: "grid_3x3",
-			Frames: []SingleFramePrompt{
-				{
-					Prompt:      fallbackPrompt,
-					Description: "3x3宫格动作序列，展示连贯的动作演进",
-				},
-			},
-		}
+		s.log.Warnw("AI generation failed for action sequence, using smart fallback", "error", err)
+		return s.generateActionSequenceFallback(sb, scene, dramaStyle, gridType)
 	}
 
-	// 解析AI返回的JSON
-	result := s.parseFramePromptJSON(aiResponse)
-	if result == nil {
-		// JSON解析失败，使用降级方案
-		s.log.Warnw("Failed to parse AI JSON response for action sequence, using fallback", "storyboard_id", sb.ID, "response", aiResponse)
-		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "3x3 storyboard grid action sequence, character consistency, continuous movement progression")
-		return &MultiFramePrompt{
-			Layout: "grid_3x3",
-			Frames: []SingleFramePrompt{
-				{
-					Prompt:      fallbackPrompt,
-					Description: "3x3宫格动作序列，展示连贯的动作演进",
-				},
-			},
-		}
+	// 解析AI返回的JSON（根据宫格类型检查帧数）
+	actionFrames := s.parseActionSequenceJSON(aiResponse)
+	if actionFrames == nil || len(actionFrames) < gridType {
+		// JSON解析失败或帧数不足，使用智能降级方案
+		s.log.Warnw("Failed to parse AI JSON response for action sequence, using smart fallback",
+			"storyboard_id", sb.ID, "parsed_frames", len(actionFrames), "expected", gridType)
+		return s.generateActionSequenceFallback(sb, scene, dramaStyle, gridType)
 	}
 
-	// 动作序列是一个整体的3x3宫格图片，所以只返回一个prompt
+	// 根据宫格类型确定布局
+	layout := "grid_3x3"
+	if gridType == 4 {
+		layout = "grid_2x2"
+	} else if gridType == 6 {
+		layout = "grid_2x3"
+	}
+
 	return &MultiFramePrompt{
-		Layout: "grid_3x3",
-		Frames: []SingleFramePrompt{*result},
+		Layout: layout,
+		Frames: actionFrames,
+	}
+}
+
+// generateActionSequenceFallback 智能生成动作序列降级方案
+func (s *FramePromptService) generateActionSequenceFallback(sb models.Storyboard, scene *models.Scene, dramaStyle string, gridType int) *MultiFramePrompt {
+	baseContext := s.buildStoryboardContext(sb, scene)
+
+	// 验证宫格类型
+	if gridType != 4 && gridType != 6 && gridType != 9 {
+		gridType = 9
+	}
+
+	// 9个动作阶段的描述（中文）
+	allPhases := []struct {
+		desc       string
+		actionHint string
+	}{
+		{"准备", "准备姿态，身体静止，动作前的平静，就位姿势"},
+		{"蓄力", "蓄力待发，身体紧绷，积蓄能量，微微下蹲或后拉"},
+		{"启动", "开始启动，开始移动，最初的动势，动作开始"},
+		{"加速", "加速进行，建立动量，速度提升，动态姿势"},
+		{"峰值", "张力峰值，最大能量集中，即将爆发，如弹簧压紧"},
+		{"爆发", "爆发瞬间，全力释放，动作高潮，最动态的瞬间"},
+		{"释放", "能量释放，惯性延续，能量扩散，顺势而为"},
+		{"减速", "减速过程，逐渐放慢，能量消退，恢复平衡"},
+		{"收束", "收束完成，回归静止，动作结束，最终姿态"},
+	}
+
+	// 根据宫格类型选择阶段
+	var phases []struct {
+		desc       string
+		actionHint string
+	}
+	if gridType == 4 {
+		phases = []struct {
+			desc       string
+			actionHint string
+		}{
+			allPhases[0], // 准备
+			allPhases[2], // 启动
+			allPhases[5], // 爆发
+			allPhases[8], // 收束
+		}
+	} else if gridType == 6 {
+		phases = []struct {
+			desc       string
+			actionHint string
+		}{
+			allPhases[0], // 准备
+			allPhases[1], // 蓄力
+			allPhases[2], // 启动
+			allPhases[4], // 峰值
+			allPhases[5], // 爆发
+			allPhases[8], // 收束
+		}
+	} else {
+		phases = allPhases // 9帧使用全部
+	}
+
+	frames := make([]SingleFramePrompt, gridType)
+	for i, phase := range phases {
+		// 构建每帧的完整提示词
+		// 第1帧是完整的图片生成提示词
+		// 第2帧起是编辑指令
+		var framePrompt string
+		if i == 0 {
+			framePrompt = fmt.Sprintf("%s，%s，第%d帧/共%d帧：%s阶段，%s，连续动作序列，角色一致性，1:1正方形格式，高细节",
+				baseContext, dramaStyle, i+1, gridType, phase.desc, phase.actionHint)
+		} else {
+			framePrompt = fmt.Sprintf("编辑：%s阶段，%s，相对于前一帧的增量变化，连续动作序列",
+				phase.desc, phase.actionHint)
+		}
+
+		frames[i] = SingleFramePrompt{
+			Prompt:      framePrompt,
+			Description: fmt.Sprintf("第%d帧：%s", i+1, phase.desc),
+		}
+	}
+
+	// 根据宫格类型确定布局
+	layout := "grid_3x3"
+	if gridType == 4 {
+		layout = "grid_2x2"
+	} else if gridType == 6 {
+		layout = "grid_2x3"
+	}
+
+	s.log.Infow("Generated action sequence fallback", "storyboard_id", sb.ID, "grid_type", gridType)
+	return &MultiFramePrompt{
+		Layout: layout,
+		Frames: frames,
 	}
 }
 
@@ -533,3 +649,296 @@ func (s *FramePromptService) buildFallbackPrompt(sb models.Storyboard, scene *mo
 	parts = append(parts, "anime style", suffix)
 	return strings.Join(parts, ", ")
 }
+
+// GenerateActionSequenceImages 逐帧串行生成动作序列宫格图片
+func (s *FramePromptService) GenerateActionSequenceImages(storyboardID uint, dramaID string, gridType int) (string, error) {
+	if s.imageGenService == nil {
+		return "", fmt.Errorf("图片生成服务不可用")
+	}
+
+	// 验证宫格类型
+	if gridType != 4 && gridType != 6 && gridType != 9 {
+		gridType = 9 // 默认9宫格
+	}
+
+	task, err := s.taskService.CreateTask("action_sequence_images", fmt.Sprintf("%d", storyboardID))
+	if err != nil {
+		return "", err
+	}
+
+	go s.processActionSequenceImages(task.ID, storyboardID, dramaID, gridType)
+	return task.ID, nil
+}
+
+func (s *FramePromptService) processActionSequenceImages(taskID string, storyboardID uint, dramaID string, gridType int) {
+	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在生成动作序列帧提示词...")
+
+	var storyboard models.Storyboard
+	if err := s.db.Preload("Characters").Preload("Props").First(&storyboard, storyboardID).Error; err != nil {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("镜头不存在: %w", err))
+		return
+	}
+
+	var scene *models.Scene
+	if storyboard.SceneID != nil {
+		var s2 models.Scene
+		if err := s.db.First(&s2, *storyboard.SceneID).Error; err == nil {
+			scene = &s2
+		}
+	}
+
+	var drama models.Drama
+	if err := s.db.First(&drama, dramaID).Error; err != nil {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("项目不存在: %w", err))
+		return
+	}
+
+	// 根据宫格类型计算行列
+	var cols, rows int
+	switch gridType {
+	case 4:
+		cols, rows = 2, 2
+	case 6:
+		cols, rows = 3, 2
+	default:
+		cols, rows = 3, 3
+		gridType = 9
+	}
+	targetFrameCount := cols * rows
+
+	// 生成帧提示词
+	multiFrame := s.generateActionSequence(storyboard, scene, drama.Style, "", gridType)
+	if multiFrame == nil || len(multiFrame.Frames) == 0 {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("生成帧提示词失败"))
+		return
+	}
+
+	frames := multiFrame.Frames
+	// 根据宫格类型截取帧数
+	if len(frames) > targetFrameCount {
+		frames = frames[:targetFrameCount]
+	}
+	totalFrames := len(frames)
+
+	// 逐帧串行生成图片
+	var generatedImagePaths []string
+	var prevImageRef *string
+
+	for i := 0; i < totalFrames; i++ {
+		s.taskService.UpdateTaskStatus(taskID, "processing", (i+1)*100/(totalFrames+2),
+			fmt.Sprintf("正在生成第 %d/%d 帧...", i+1, totalFrames))
+
+		frame := frames[i]
+
+		req := &GenerateImageRequest{
+			StoryboardID:    &storyboardID,
+			DramaID:         dramaID,
+			ImageType:       "storyboard",
+			FrameType:       strPtr("action"),
+			Prompt:          frame.Prompt,
+			Provider:        s.config.AI.DefaultImageProvider,
+			Size:            "2K",
+			ReferenceImages: []string{},
+		}
+
+		if prevImageRef != nil {
+			req.ReferenceImages = []string{*prevImageRef}
+		}
+
+		imageGen, err := s.imageGenService.GenerateImage(req)
+		if err != nil {
+			s.log.Errorw("Failed to generate frame", "frame", i+1, "error", err)
+			s.taskService.UpdateTaskError(taskID, fmt.Errorf("第 %d 帧生成失败: %w", i+1, err))
+			return
+		}
+
+		completedURL, completedPath, err := s.waitForImageCompletion(imageGen.ID)
+		if err != nil {
+			s.taskService.UpdateTaskError(taskID, fmt.Errorf("第 %d 帧等待失败: %w", i+1, err))
+			return
+		}
+
+		if completedPath != nil {
+			generatedImagePaths = append(generatedImagePaths, *completedPath)
+			prevImageRef = completedPath
+		} else if completedURL != nil {
+			generatedImagePaths = append(generatedImagePaths, *completedURL)
+			prevImageRef = completedURL
+		}
+
+		s.log.Infow("Action sequence frame generated",
+			"task_id", taskID, "frame", i+1, "total", totalFrames)
+	}
+
+	// 拼合九宫格
+	s.taskService.UpdateTaskStatus(taskID, "processing", 95, "正在拼合宫格图片...")
+
+	compositePath, err := s.composeGridImage(generatedImagePaths, cols, rows)
+	if err != nil {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("拼合图片失败: %w", err))
+		return
+	}
+
+	frameType := "action"
+	imageURL := ""
+	if s.localStorage != nil {
+		imageURL = s.localStorage.GetURL(*compositePath)
+	}
+
+	newImageGen := &models.ImageGeneration{
+		DramaID:      drama.ID,
+		StoryboardID: &storyboardID,
+		ImageType:    string(models.ImageTypeStoryboard),
+		FrameType:    &frameType,
+		Prompt:       fmt.Sprintf("动作序列九宫格 - %d帧", totalFrames),
+		Status:       models.ImageStatusCompleted,
+		ImageURL:     &imageURL,
+		LocalPath:    compositePath,
+		Provider:     s.config.AI.DefaultImageProvider,
+		CompletedAt:  timePtr(time.Now()),
+	}
+	if err := s.db.Create(newImageGen).Error; err != nil {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("保存图片记录失败: %w", err))
+		return
+	}
+
+	s.taskService.UpdateTaskResult(taskID, map[string]interface{}{
+		"image_url":    imageURL,
+		"local_path":   compositePath,
+		"image_gen_id": newImageGen.ID,
+		"total_frames": totalFrames,
+	})
+}
+
+func (s *FramePromptService) waitForImageCompletion(imageGenID uint) (*string, *string, error) {
+	maxAttempts := 120
+	pollInterval := 3 * time.Second
+
+	for i := 0; i < maxAttempts; i++ {
+		time.Sleep(pollInterval)
+		var imageGen models.ImageGeneration
+		if err := s.db.First(&imageGen, imageGenID).Error; err != nil {
+			continue
+		}
+		if imageGen.Status == models.ImageStatusCompleted {
+			return imageGen.ImageURL, imageGen.LocalPath, nil
+		}
+		if imageGen.Status == models.ImageStatusFailed {
+			errMsg := "图片生成失败"
+			if imageGen.ErrorMsg != nil {
+				errMsg = *imageGen.ErrorMsg
+			}
+			return nil, nil, fmt.Errorf(errMsg)
+		}
+	}
+	return nil, nil, fmt.Errorf("图片生成超时")
+}
+
+func (s *FramePromptService) composeGridImage(imagePaths []string, cols, rows int) (*string, error) {
+	if len(imagePaths) == 0 {
+		return nil, fmt.Errorf("没有图片可拼合")
+	}
+
+	cellSize := 1024
+	gap := 6
+	totalW := cellSize*cols + gap*(cols-1)
+	totalH := cellSize*rows + gap*(rows-1)
+
+	canvas := image.NewRGBA(image.Rect(0, 0, totalW, totalH))
+	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{image.White}, image.Point{}, draw.Src)
+
+	for i, imgPath := range imagePaths {
+		if i >= cols*rows {
+			break
+		}
+		img, err := s.loadImageFromPath(imgPath)
+		if err != nil {
+			s.log.Warnw("Failed to load image for grid", "path", imgPath, "error", err)
+			continue
+		}
+		resized := s.resizeImage(img, cellSize, cellSize)
+		col := i % cols
+		row := i / cols
+		x := col * (cellSize + gap)
+		y := row * (cellSize + gap)
+		draw.Draw(canvas, image.Rect(x, y, x+cellSize, y+cellSize), resized, image.Point{}, draw.Over)
+	}
+
+	if s.localStorage == nil {
+		return nil, fmt.Errorf("本地存储不可用")
+	}
+
+	storagePath := s.localStorage.GetAbsolutePath("")
+	dir := storagePath + "/images/grids"
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("创建目录失败: %w", err)
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_action_grid_%dx%d.png", timestamp, cols, rows)
+	filePath := filepath.Join(dir, filename)
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("创建文件失败: %w", err)
+	}
+	defer f.Close()
+
+	if err := png.Encode(f, canvas); err != nil {
+		return nil, fmt.Errorf("编码PNG失败: %w", err)
+	}
+
+	relPath := "images/grids/" + filename
+	return &relPath, nil
+}
+
+func (s *FramePromptService) loadImageFromPath(path string) (image.Image, error) {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get(path)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		return s.decodeImage(resp.Body)
+	}
+	absPath := path
+	if s.localStorage != nil && !strings.HasPrefix(path, "/") {
+		absPath = s.localStorage.GetAbsolutePath(path)
+	}
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return s.decodeImage(f)
+}
+
+func (s *FramePromptService) decodeImage(r io.Reader) (image.Image, error) {
+	img, _, err := image.Decode(r)
+	return img, err
+}
+
+func (s *FramePromptService) resizeImage(src image.Image, w, h int) image.Image {
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	srcBounds := src.Bounds()
+	sx := float64(srcBounds.Dx()) / float64(w)
+	sy := float64(srcBounds.Dy()) / float64(h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			srcX := int(math.Floor(float64(x) * sx))
+			srcY := int(math.Floor(float64(y) * sy))
+			if srcX >= srcBounds.Dx() {
+				srcX = srcBounds.Dx() - 1
+			}
+			if srcY >= srcBounds.Dy() {
+				srcY = srcBounds.Dy() - 1
+			}
+			dst.Set(x, y, src.At(srcBounds.Min.X+srcX, srcBounds.Min.Y+srcY))
+		}
+	}
+	return dst
+}
+
+func strPtr(s string) *string       { return &s }
+func timePtr(t time.Time) *time.Time { return &t }

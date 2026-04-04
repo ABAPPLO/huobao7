@@ -174,6 +174,11 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 		}
 	}
 
+	// 动作序列（九宫格）使用 1:1 正方形比例
+	if imageGen.FrameType != nil && *imageGen.FrameType == "action" {
+		imageRatio = "1:1"
+	}
+
 	s.db.Model(&imageGen).Update("status", models.ImageStatusProcessing)
 
 	// 如果关联了background，同步更新background为generating状态

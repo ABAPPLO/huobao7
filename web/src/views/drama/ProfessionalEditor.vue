@@ -444,9 +444,9 @@
                     <el-radio-button label="last">{{
                       $t("editor.lastFrame")
                     }}</el-radio-button>
-                    <!-- <el-radio-button label="panel">{{
+                    <el-radio-button label="panel">{{
                       $t("editor.panelFrame")
-                    }}</el-radio-button> -->
+                    }}</el-radio-button>
                     <el-radio-button label="action">{{
                       $t("editor.actionSequence")
                     }}</el-radio-button>
@@ -468,6 +468,17 @@
                     class="panel-count-label"
                     >{{ $t("editor.panelCount") }}</span
                   >
+                  <el-radio-group
+                    v-if="selectedFrameType === 'action'"
+                    v-model="actionGridType"
+                    size="small"
+                    :disabled="actionGridTypeLocked"
+                    style="margin-left: 12px; margin-top: 10px"
+                  >
+                    <el-radio-button :value="4">4宫格</el-radio-button>
+                    <el-radio-button :value="6">6宫格</el-radio-button>
+                    <el-radio-button :value="9">9宫格</el-radio-button>
+                  </el-radio-group>
                 </div>
 
                 <!-- 提示词区域 -->
@@ -495,7 +506,35 @@
                       {{ $t("editor.extractPrompt") }}
                     </el-button>
                   </div>
+
+                  <!-- 动作序列：宫格提示词区域 -->
+                  <div v-if="selectedFrameType === 'action'" class="action-sequence-area">
+                    <!-- 宫格提示词网格 -->
+                    <div class="action-grid-prompts" :class="`grid-layout-${actionGridType}`">
+                      <div
+                        v-for="index in actionGridType"
+                        :key="index"
+                        class="action-frame-card"
+                      >
+                        <div class="frame-header">
+                          <span class="frame-number-badge">{{ index }}</span>
+                          <span class="frame-desc-text">{{
+                            actionFramePrompts[index - 1]?.description || `第${index}帧`
+                          }}</span>
+                        </div>
+                        <el-input
+                          v-model="actionFramePrompts[index - 1].prompt"
+                          type="textarea"
+                          :rows="3"
+                          :placeholder="`点击提取提示词后自动填充`"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 非动作序列：普通文本框 -->
                   <el-input
+                    v-if="selectedFrameType !== 'action'"
                     v-model="currentFramePrompt"
                     type="textarea"
                     :rows="8"
@@ -505,7 +544,9 @@
 
                 <!-- 生成控制 -->
                 <div class="generation-controls">
+                  <!-- 非动作序列：普通生成按钮 -->
                   <el-button
+                    v-if="selectedFrameType !== 'action'"
                     type="success"
                     :icon="MagicStick"
                     :loading="generatingImage"
@@ -517,6 +558,17 @@
                         ? $t("editor.generating")
                         : $t("editor.generateImage")
                     }}
+                  </el-button>
+                  <!-- 动作序列：逐帧生成按钮 -->
+                  <el-button
+                    v-if="selectedFrameType === 'action'"
+                    type="warning"
+                    :icon="MagicStick"
+                    :loading="generatingActionSequence"
+                    :disabled="generatingActionSequence || !actionFramePrompts[0]?.prompt"
+                    @click="handleGenerateActionSequenceImages"
+                  >
+                    {{ generatingActionSequence ? actionSequenceProgress : `逐帧生成${actionGridType}宫格` }}
                   </el-button>
                   <el-button :icon="Upload" @click="uploadImage">{{
                     $t("editor.uploadImage")
@@ -760,7 +812,7 @@
                     >
                       <el-radio-button label="first">首帧</el-radio-button>
                       <el-radio-button label="last">尾帧</el-radio-button>
-                      <!-- <el-radio-button label="panel">分镜板</el-radio-button> -->
+                      <el-radio-button label="panel">分镜板</el-radio-button>
                       <el-radio-button label="action">动作序列</el-radio-button>
                       <el-radio-button label="key">关键帧</el-radio-button>
                     </el-radio-group>
@@ -1264,7 +1316,27 @@
                       v-if="selectedReferenceMode === 'single'"
                       style="text-align: center"
                     >
-                      <div class="reference-mode-title">单图参考</div>
+                      <div class="reference-mode-title">
+                        单图参考
+                        <!-- 动作序列模式提示 -->
+                        <el-tag
+                          v-if="
+                            selectedImageObjects[0]?.frame_type === 'action'
+                          "
+                          type="success"
+                          size="small"
+                          style="margin-left: 8px"
+                        >
+                          九宫格动作序列模式
+                        </el-tag>
+                      </div>
+                      <!-- 动作序列模式说明 -->
+                      <div
+                        v-if="selectedImageObjects[0]?.frame_type === 'action'"
+                        class="action-sequence-hint"
+                      >
+                        AI将识别九宫格中的9帧画面，自动插值生成连贯视频
+                      </div>
                       <div style="display: inline-block">
                         <div
                           class="image-slot"
@@ -2049,7 +2121,7 @@ import {
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { propAPI } from "@/api/prop";
-import { generateFramePrompt, type FrameType } from "@/api/frame";
+import { generateFramePrompt, generateActionSequenceImages, type FrameType } from "@/api/frame";
 import { imageAPI } from "@/api/image";
 import { videoAPI } from "@/api/video";
 import { aiAPI } from "@/api/ai";
@@ -2125,6 +2197,28 @@ let pollingFrameType: FrameType | null = null; // 记录正在轮询的帧类型
 
 // 宫格图片编辑器状态
 const showGridEditor = ref(false);
+const generatingActionSequence = ref(false);
+const actionSequenceProgress = ref("");
+
+// 动作序列多帧提示词
+const actionFramePrompts = ref<{ prompt: string; description: string }[]>([]);
+const actionGridType = ref<4 | 6 | 9>(9); // 宫格类型：4/6/9
+const actionGridTypeLocked = ref(false); // 提取提示词后锁定宫格类型
+
+// 初始化动作序列帧提示词数组（根据宫格类型）
+const initActionFramePrompts = (count?: number) => {
+  const targetCount = count || actionGridType.value;
+  while (actionFramePrompts.value.length < targetCount) {
+    actionFramePrompts.value.push({ prompt: "", description: `第${actionFramePrompts.value.length + 1}帧` });
+  }
+};
+// 初始化默认9个空帧
+initActionFramePrompts(9);
+
+// 监听宫格类型变化
+watch(actionGridType, (newType) => {
+  initActionFramePrompts(newType);
+});
 
 // 所有已生成的图片（用于宫格编辑器选择）
 const allGeneratedImages = ref<ImageGeneration[]>([]);
@@ -2561,8 +2655,12 @@ watch(currentStoryboard, async (newStoryboard) => {
     generatedVideos.value = [];
     videoReferenceImages.value = [];
     previousStoryboardLastFrames.value = [];
+    actionGridTypeLocked.value = false;
     return;
   }
+
+  // 切换镜头时解锁宫格类型
+  actionGridTypeLocked.value = false;
 
   // 设置切换标志
   isSwitchingFrameType.value = true;
@@ -2653,6 +2751,26 @@ watch(currentStoryboard, (newStoryboard) => {
 watch(selectedReferenceMode, () => {
   selectedImagesForVideo.value = [];
   selectedLastImageForVideo.value = null;
+});
+
+// 监听视频帧类型切换，自动设置合适的参考图模式
+watch(selectedVideoFrameType, (newType) => {
+  // 清空已选图片
+  selectedImagesForVideo.value = [];
+  selectedLastImageForVideo.value = null;
+
+  // 根据帧类型自动切换参考图模式
+  const capability = currentModelCapability.value;
+  if (!capability) return;
+
+  // action/key/first/last/panel 都默认使用 single 模式
+  // first_last 模式需要用户手动选择后再分别选首尾帧
+  if (
+    capability.supportSingleImage &&
+    availableReferenceModes.value.some((m) => m.value === "single")
+  ) {
+    selectedReferenceMode.value = "single";
+  }
 });
 
 // 当前分镜的角色列表
@@ -2802,6 +2920,11 @@ const extractFramePrompt = async () => {
     if (targetFrameType === "panel") {
       params.panel_count = panelCount.value;
     }
+    if (targetFrameType === "action") {
+      params.grid_type = actionGridType.value;
+      // 锁定宫格类型，防止后续变化
+      actionGridTypeLocked.value = true;
+    }
 
     const { task_id } = await generateFramePrompt(storyboardId, params);
 
@@ -2830,15 +2953,28 @@ const extractFramePrompt = async () => {
 
     const result = await pollTask();
 
+    // 调试日志
+    console.log("=== Frame Prompt Result ===");
+    console.log("result:", JSON.stringify(result, null, 2));
+    console.log("result.multi_frame:", result.multi_frame);
+    console.log("result.multi_frame?.frames:", result.multi_frame?.frames);
+
     // 根据返回结果构建提示词字符串
     let extractedPrompt = "";
     if (result.single_frame) {
       extractedPrompt = result.single_frame.prompt;
     } else if (result.multi_frame && result.multi_frame.frames) {
-      // 多帧情况，将所有帧的prompt合并
-      extractedPrompt = result.multi_frame.frames
-        .map((frame: any) => frame.prompt)
-        .join("\n\n");
+      // 多帧情况：更新帧数组（保持用户选择的宫格类型不变）
+      const frames = result.multi_frame.frames;
+      console.log("frames count:", frames.length);
+      // 逐个更新现有数组的元素，而不是替换整个数组
+      for (let i = 0; i < frames.length && i < actionFramePrompts.value.length; i++) {
+        console.log(`Updating frame ${i}:`, frames[i].prompt?.substring(0, 50));
+        actionFramePrompts.value[i].prompt = frames[i].prompt || "";
+        actionFramePrompts.value[i].description = frames[i].description || `第${i + 1}帧`;
+      }
+      // 兼容：仍合并为字符串用于sessionStorage
+      extractedPrompt = frames.map((frame: any) => frame.prompt).join("\n\n");
     }
 
     // 更新存储（这一步必须做，无论用户是否还在当前页面）
@@ -3209,6 +3345,17 @@ const handleImageSelect = (imageId: number) => {
     (img) => img.id === imageId,
   );
   if (!clickedImage) return;
+
+  // 如果点击的是 action 类型图片，自动切换到 single 模式
+  if (
+    clickedImage.frame_type === "action" &&
+    selectedReferenceMode.value !== "single" &&
+    capability.supportSingleImage
+  ) {
+    selectedReferenceMode.value = "single";
+    selectedImagesForVideo.value = [];
+    selectedLastImageForVideo.value = null;
+  }
 
   // 根据选择的参考图模式处理
   switch (selectedReferenceMode.value) {
@@ -3739,6 +3886,71 @@ const generateImage = async () => {
   }
 };
 
+
+// 逐帧生成动作序列宫格图片
+const handleGenerateActionSequenceImages = async () => {
+  if (!currentStoryboard.value) {
+    ElMessage.warning("请先选择镜头");
+    return;
+  }
+
+  // 检查是否有足够的提示词帧
+  const frameCount = actionFramePrompts.value.length;
+  const targetCount = actionGridType.value;
+  if (frameCount < targetCount) {
+    ElMessage.warning(`当前只有 ${frameCount} 个帧提示词，需要 ${targetCount} 个`);
+    return;
+  }
+
+  generatingActionSequence.value = true;
+  actionSequenceProgress.value = "正在启动...";
+
+  try {
+    const result = await generateActionSequenceImages(
+      currentStoryboard.value.id,
+      parseInt(dramaId),
+      actionGridType.value
+    );
+
+    const taskId = result.task_id;
+    actionSequenceProgress.value = `生成中 0/${targetCount}...`;
+
+    // 轮询任务状态
+    const pollInterval = setInterval(async () => {
+      try {
+        const task = await taskAPI.getStatus(taskId);
+        if (task.status === "completed") {
+          clearInterval(pollInterval);
+          generatingActionSequence.value = false;
+          actionSequenceProgress.value = "";
+          ElMessage.success("动作序列九宫格图片生成完成");
+          // 刷新图片列表
+          if (currentStoryboard.value) {
+            await loadStoryboardImages(currentStoryboard.value.id, "action");
+          }
+        } else if (task.status === "failed") {
+          clearInterval(pollInterval);
+          generatingActionSequence.value = false;
+          actionSequenceProgress.value = "";
+          ElMessage.error(task.error || "生成失败");
+        } else {
+          // 更新进度
+          if (task.message) {
+            actionSequenceProgress.value = task.message;
+          } else if (task.progress > 0) {
+            actionSequenceProgress.value = `生成中 ${Math.round(task.progress)}%...`;
+          }
+        }
+      } catch (e) {
+        console.error("轮询任务状态失败:", e);
+      }
+    }, 3000);
+  } catch (error: any) {
+    generatingActionSequence.value = false;
+    actionSequenceProgress.value = "";
+    ElMessage.error(error.message || "启动生成失败");
+  }
+};
 const uploadImage = () => {
   if (!currentStoryboard.value) {
     ElMessage.warning("请先选择镜头");
@@ -6131,6 +6343,93 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-primary);
   background: var(--bg-secondary);
 }
+
+/* 多帧提示词卡片样式 */
+.action-sequence-area {
+  margin-top: 4px;
+}
+
+.action-grid-prompts {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.action-grid-prompts.grid-layout-4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.action-grid-prompts.grid-layout-6 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.action-grid-prompts.grid-layout-9 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.action-frame-card {
+  padding: 10px;
+  background: var(--bg-card);
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+  transition: border-color 0.2s;
+}
+
+.action-frame-card:hover {
+  border-color: var(--accent);
+}
+
+.action-frame-card .frame-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.action-frame-card .frame-number-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+  padding: 0 4px;
+}
+
+.action-frame-card .frame-desc-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-frame-card :deep(.el-textarea__inner) {
+  background: var(--bg-primary);
+  border-color: var(--border-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  min-height: 72px !important;
+  max-height: 72px !important;
+  height: 72px !important;
+  resize: none;
+}
+
+.grid-type-selector {
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+}
 </style>
 <style>
 .video-prompt-box {
@@ -6171,6 +6470,17 @@ onBeforeUnmount(() => {
 
 .action-image-item:hover .crop-icon-overlay {
   opacity: 1;
+}
+
+/* 动作序列模式提示样式 */
+.action-sequence-hint {
+  font-size: 12px;
+  color: #67c23a;
+  background: rgba(103, 194, 58, 0.1);
+  padding: 6px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  line-height: 1.5;
 }
 
 .crop-icon-overlay:hover {

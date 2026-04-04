@@ -356,90 +356,110 @@ Return a JSON object containing:
 - description：简化的中文描述（供参考）`, style, imageRatio)
 }
 
-// GetActionSequenceFramePrompt 获取动作序列提示词
-func (p *PromptI18n) GetActionSequenceFramePrompt(style string) string {
-	imageRatio := "16:9"
+// GetActionSequenceFramePrompt 获取动作序列提示词（逐帧独立生成版）
+func (p *PromptI18n) GetActionSequenceFramePrompt(style string, frameCount int) string {
+	imageRatio := "1:1"
 	if p.IsEnglish() {
-		return fmt.Sprintf(`**Role:** You are an expert in visual storytelling and image generation prompting. You need to generate a single prompt that describes a 3x3 grid action sequence.
+		return fmt.Sprintf(`**Role:** You are an expert in visual storytelling and sequential image generation. You need to generate %d sequential frame prompts for an action sequence.
 
-**Core Logic:**
+**IMPORTANT - Sequential Edit Workflow:**
 
-1. **Holistic Integration:** This is a single, complete image containing a 3x3 grid layout, showcasing 9 sequential actions of the same subject.
-2. **Visual Anchoring:** The subject, clothing, art style, and character consistency must be identical across all 9 frames.
-3. **Action Evolution:** From Frame 1 to Frame 9, display a complete action sequence (e.g., Standing → Walking → Running → Jumping → Landing).
-4. **Prompt Engineering:** Use high-quality visual vocabulary (lighting, textures, composition, depth of field).
+- **Frame 1:** Complete full image generation prompt describing the initial scene, character, pose, environment, lighting
+- **Frame 2-%d:** Each subsequent prompt is an **IMAGE EDIT instruction** describing what to change from the previous frame
 
-**Important:**
+**Edit Prompt Format for Frame 2+:**
+Each edit prompt should describe:
+- What body part/pose/position changes
+- How the action progresses
+- Camera angle adjustments if any
+- Lighting/atmosphere changes
 
-You must generate **ONE** comprehensive prompt to describe the entire 3x3 grid image, rather than 9 independent prompts.
+**Example for a 4-frame sequence:**
+- Frame 1: "A young woman in white dress standing under an old locust tree, spring morning light, peaceful atmosphere, wide shot..."
+- Frame 2: "EDIT: Woman's head tilts slightly upward, eyes begin to close, hands clasped tighter, leaves start to flutter more..."
+- Frame 3: "EDIT: Woman's arms slowly rise outward, face shows peaceful expression, hair begins to sway in breeze..."
+- Frame 4: "EDIT: Woman's arms fully extended embracing the moment, head thrown back, golden sunlight through leaves..."
 
-Each frame **must** follow these specific rules:
+**Frame Phases for %d frames:**
+`, frameCount, frameCount, frameCount) + p.generatePhaseDescriptions(frameCount, true) + fmt.Sprintf(`
 
-- **Frame 1:** Preparation/Initial stance
-- **Frame 2:** Anticipation/Body adjustment
-- **Frame 3:** Initiation/Beginning of movement
-- **Frame 4:** Acceleration/Power building
-- **Frame 5:** Peak of tension/Just before the burst
-- **Frame 6:** Action burst/The climax moment
-- **Frame 7:** Power release/Inertia continuation
-- **Frame 8:** Deceleration/Follow-through
-- **Frame 9:** Complete conclusion/Return to stillness
+**Image Ratio:** %s (square)
+**Style:** %s
 
-**Aspect Ratio:** * %s
-- **Style Requirement**: %s
+**Output Format - Return ONLY this JSON:**
 
-**Output Specification:**
+{"frames":[{"prompt":"Frame 1: Complete full image prompt...","description":"Frame 1"},{"prompt":"Frame 2: EDIT instruction...","description":"Frame 2"},{"prompt":"Frame 3: EDIT instruction...","description":"Frame 3"}]}
 
-You must return a **JSON object** with the following structure:
-
-- **prompt**: A **complete English image generation prompt** (describing the 3x3 grid layout, subject features, the evolution of the 9 actions, environment, and lighting details to ensure the AI generates one single image containing 9 frames).
-- **description**: A **simplified English description** (summarizing the core content of the action sequence).
-
-**Example Format:**
-
-{
-  "prompt": "Action sequence layout, 3x3 grid composition\n [Frame 1]: [Subject] standing naturally in [Setting], feet shoulder-width apart...\n---\n [Frame 2]: [Subject] locking eyes forward, leaning body slightly...\n---\n [Frame 3]: [Subject's legs] bending slightly, center of gravity lowering...\n---\n [Frame 4]: [Subject] pushing off with back leg, body moving forward, dust rising from [Setting's ground]...\n---\n [Frame 5]: [Subject's clothing] fluttering, body leaning deep, fist charging power...\n---\n [Frame 6]: [Subject] sprinting at full speed, fist striking out...\n---\n [Frame 7]: [Subject] impact moment, body lunging forward...\n---\n [Frame 8]: [Subject] slowing down, pulling back the fist...\n---\n [Frame 9]: [Subject's full appearance] standing firm in [Setting], recovering original stance.",
-  "description": "Complete action sequence of a swordsman in black from drawing a blade to striking."
-}
-
-`, style, imageRatio)
+**Rules:**
+1. Frame 1 MUST be a complete, detailed image generation prompt
+2. Frames 2-%d MUST start with "EDIT:" and describe incremental changes
+3. Each frame should show clear progression from the previous
+4. Keep character appearance consistent throughout
+5. Output valid JSON only, no markdown
+`, imageRatio, style, frameCount)
 	}
 
-	return fmt.Sprintf(`**Role:** 你是一位精通视觉叙事与图像生成提示词的专家。你需要生成一个描述 3x3 九宫格动作序列的提示词。
+	return fmt.Sprintf(`**角色定位：** 你是一位精通视觉叙事与连续图像生成的专家。你需要为一个动作序列生成 %d 帧连续提示词。
 
-**Core Logic:**
 
-1. **整体性:** 这是一张完整的图片,包含 3x3 九宫格布局,展示同一主体的 9 个连续动作。
-2. **视觉锚定:** 所有 9 个格子中的主体、服装、画风必须高度一致。
-3. **动作演进:** 从格子 1 到格子 9,展示一个完整的动作序列(如:从站立→行走→奔跑→跳跃→落地)。
-4. **提示词工程:** 使用高质量的视觉词汇(光影、材质、构图、景深)。
+	**【最重要】所有提示词必须使用中文编写！不要使用英文！**
+**重要 - 连续编辑工作流：**
 
-**重要:** 
-你需要生成 **一个** 完整的提示词来描述整个 3x3 九宫格图片,而不是 9 个独立的提示词。
-每一格要求**必须**遵守如下规则：
-- **第1格**：动作准备/初始姿态
-- **第2格**：预备动作/身体调整
-- **第3格**：动作启动/开始移动
-- **第4格**：加速阶段/力量积蓄
-- **第5格**：蓄力顶点/即将爆发
-- **第6格**：动作爆发/高潮瞬间
-- **第7格**：力量释放/惯性延续
-- **第8格**：动作缓冲/逐渐收势
-- **第9格**：完全收尾/回归静止
+- **第1帧：** 完整的图片生成提示词，描述初始场景、角色、姿态、环境、光影
+- **第2-%d帧：** 每个后续提示词是一个**图片编辑指令**，描述相对于前一帧的变化
 
-**Aspect Ratio:** 
-* %s
+**编辑提示词格式（第2帧起）：**
+每个编辑提示词应描述：
+- 身体部位/姿态/位置的变化
+- 动作的递进
+- 镜头角度的调整（如有）
+- 光影/氛围的变化
 
-**Output Specification:**
-必须返回一个 **JSON 对象**,其结构如下:
-* prompt: **完整的中文图片生成提示词**(描述整个 3x3 九宫格的布局、主体特征、9 个动作的演进过程、环境、光影细节,确保 AI 能直接生成一张包含 9 个格子的完整图像)。
-* description: **简化的中文描述**(概括这个动作序列的核心内容)。
+**4帧序列示例：**
+- 第1帧："年轻女子身穿白色连衣裙站在老槐树下，春日晨光，宁静祥和的氛围，全景镜头..."
+- 第2帧："编辑：女子头部微微上扬，眼睛开始闭合，双手握得更紧，树叶开始轻轻飘动..."
+- 第3帧："编辑：女子双臂缓慢向外抬起，表情平和，头发开始在微风中飘动..."
+- 第4帧："编辑：女子双臂完全展开拥抱这一刻，头向后仰，金色阳光穿过树叶..."
 
-**示例格式:**
-{
-  "prompt": "动作序列布局，3x3方格布局\n [第1格]: [角色参考图2] 在 [场景参考图1] 中自然站立，双脚分开...\n---\n [第2格]: [角色参考图2] 眼神锁定，身体前倾...\n---\n [第3格]: [角色参考图2的腿部] 双腿微屈，重心下沉...\n---\n [第4格]: [角色参考图2] 后腿蹬地，身体前移，[场景参考图1的地面] 扬起尘土...\n---\n [第5格]: [角色参考图2的服装] 身体前倾，拳头蓄力...\n---\n [第6格]: [角色参考图2] 全速冲刺，拳头击出...\n---\n [第7格]: [角色参考图2] 拳头击中，身体前冲...\n---\n [第8格]: [角色参考图2] 减速收拳...\n---\n [第9格]: [角色参考图2的完整外观] 在 [场景参考图1] 中站稳，恢复姿态。\n",
-  "description": "黑衣剑客从拔剑到攻击的完整动作序列"
-}`, imageRatio)
+**%d帧的动作阶段分配：**
+`, frameCount, frameCount, frameCount) + p.generatePhaseDescriptions(frameCount, false) + fmt.Sprintf(`
+
+**图片比例：** %s（正方形）
+**风格：** %s
+
+**输出格式 - 只返回这个JSON：**
+
+{"frames":[{"prompt":"第1帧：完整的初始画面中文描述，详细描述场景、角色、姿态、光影...","description":"第1帧"},{"prompt":"编辑：描述相对于前一帧的变化...","description":"第2帧"},{"prompt":"编辑：描述相对于前一帧的变化...","description":"第3帧"}]}
+
+**规则：**
+1. 第1帧必须是完整、详细的图片生成提示词（中文）
+2. 第2-%d帧必须以"编辑："开头，描述增量变化
+3. 每帧应展示清晰的递进
+4. 保持角色外观一致
+5. 只输出有效JSON，不要markdown
+`, imageRatio, style, frameCount)
+}
+
+// generatePhaseDescriptions 生成帧阶段描述
+func (p *PromptI18n) generatePhaseDescriptions(count int, english bool) string {
+	if english {
+		switch count {
+		case 4:
+			return "- Frame 1: Preparation/Initial stance\n- Frame 2: Action initiation\n- Frame 3: Action climax\n- Frame 4: Conclusion"
+		case 6:
+			return "- Frame 1: Preparation\n- Frame 2: Anticipation\n- Frame 3: Initiation\n- Frame 4: Acceleration\n- Frame 5: Climax\n- Frame 6: Conclusion"
+		default: // 9
+			return "- Frame 1: Preparation/Initial stance\n- Frame 2: Anticipation/Body adjustment\n- Frame 3: Initiation/Beginning\n- Frame 4: Acceleration\n- Frame 5: Peak tension\n- Frame 6: Action burst\n- Frame 7: Power release\n- Frame 8: Deceleration\n- Frame 9: Conclusion"
+		}
+	}
+	switch count {
+	case 4:
+		return "- 第1帧：准备/初始姿态\n- 第2帧：动作启动\n- 第3帧：动作高潮\n- 第4帧：收尾"
+	case 6:
+		return "- 第1帧：准备\n- 第2帧：蓄力\n- 第3帧：启动\n- 第4帧：加速\n- 第5帧：爆发\n- 第6帧：收束"
+	default: // 9
+		return "- 第1帧：准备/初始姿态\n- 第2帧：蓄力/调整\n- 第3帧：启动\n- 第4帧：加速\n- 第5帧：峰值\n- 第6帧：爆发\n- 第7帧：释放\n- 第8帧：减速\n- 第9帧：收束"
+	}
 }
 
 // GetLastFramePrompt 获取尾帧提示词

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
@@ -29,6 +31,7 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 	var req struct {
 		FrameType  string `json:"frame_type"`
 		PanelCount int    `json:"panel_count"`
+		GridType   int    `json:"grid_type"` // 动作序列宫格数：4/6/9
 		Model      string `json:"model"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -40,6 +43,7 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 		StoryboardID: storyboardID,
 		FrameType:    services.FrameType(req.FrameType),
 		PanelCount:   req.PanelCount,
+		GridType:     req.GridType,
 	}
 
 	// 直接调用服务层的异步方法，该方法会创建任务并返回任务ID
@@ -55,5 +59,49 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 		"task_id": taskID,
 		"status":  "pending",
 		"message": "帧提示词生成任务已创建，正在后台处理...",
+	})
+}
+
+// GenerateActionSequenceImages 逐帧串行生成动作序列宫格图片
+// POST /api/v1/storyboards/:id/action-sequence-images
+func (h *FramePromptHandler) GenerateActionSequenceImages(c *gin.Context) {
+	storyboardID := c.Param("id")
+
+	var storyboardIDUint uint
+	if _, err := fmt.Sscanf(storyboardID, "%d", &storyboardIDUint); err != nil {
+		response.BadRequest(c, "无效的镜头ID")
+		return
+	}
+
+	var req struct {
+		DramaID  string `json:"drama_id"`
+		GridType int    `json:"grid_type"` // 4/6/9
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	if req.DramaID == "" {
+		response.BadRequest(c, "drama_id 不能为空")
+		return
+	}
+
+	gridType := req.GridType
+	if gridType != 4 && gridType != 6 && gridType != 9 {
+		gridType = 9 // 默认9宫格
+	}
+
+	taskID, err := h.framePromptService.GenerateActionSequenceImages(storyboardIDUint, req.DramaID, gridType)
+	if err != nil {
+		h.log.Errorw("Failed to generate action sequence images", "error", err)
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"task_id": taskID,
+		"status":  "pending",
+		"message": "动作序列图片生成任务已创建，正在后台处理...",
 	})
 }
