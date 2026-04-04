@@ -40,25 +40,23 @@ export const videoAPI = {
 
   deleteVideo(id: number) {
     return request.delete(`/videos/${id}`)
+  },
+
+  generateKeyframeVideoPrompts(data: {
+    storyboard_id: number;
+    frame_image_ids: number[];
+  }): Promise<{ prompts: string[] }> {
+    return request.post<{ prompts: string[] }>('/videos/keyframe-prompts', data)
+  },
+
+  generateKeyframeSequenceVideos(data: {
+    storyboard_id: number;
+    drama_id: string;
+    frame_image_ids: number[];
+    video_prompts: string[];
+    generation_mode?: 'parallel' | 'sequential';
+    model?: string;
+  }): Promise<{ task_id: string; status: string }> {
+    return request.post<{ task_id: string; status: string }>('/videos/keyframe-sequence', data)
   }
-}
-
-// GenerateKeyframeVideoPrompts 生成关键帧视频提示词
-export function generateKeyframeVideoPrompts(data: {
-  storyboard_id: number;
-  frame_image_ids: number[];
-}): Promise<{ prompts: string[] }> {
-  return request.post<{ prompts: string[] }>('/videos/keyframe-prompts', data)
-}
-
-// GenerateKeyframeSequenceVideos 批量生成关键帧序列视频
-export function generateKeyframeSequenceVideos(data: {
-  storyboard_id: number;
-  drama_id: string;
-  frame_image_ids: number[];
-  video_prompts: string[];
-  generation_mode?: 'parallel' | 'sequential';
-  model?: string;
-}): Promise<{ task_id: string; status: string }> {
-  return request.post<{ task_id: string; status: string }>('/videos/keyframe-sequence', data)
 }

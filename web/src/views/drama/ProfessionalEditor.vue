@@ -1298,6 +1298,97 @@
                   </div>
                 </div>
 
+                <!-- 关键帧序列视频生成区域 -->
+                <div
+                  v-if="selectedVideoFrameType === 'action' && actionSequenceImages.length >= 2"
+                  class="keyframe-video-section"
+                  style="
+                    margin-top: 16px;
+                    padding: 16px;
+                    background: #f5f7f33;
+                    border-radius: 8px;
+                  "
+                >
+                  <div class="section-title" style="font-weight: bold; margin-bottom: 12px">
+                    关键帧序列视频生成
+                    <el-tag type="info" size="small">{{ actionSequenceImages.length }}帧</el-tag>
+                  </div>
+
+                  <!-- 生成方式选择 -->
+                  <div class="generation-mode-selector" style="margin-bottom: 12px">
+                    <span style="margin-right: 12px">生成方式:</span>
+                    <el-radio-group v-model="keyframeGenerationMode" size="small">
+                      <el-radio-button value="parallel">并行生成</el-radio-button>
+                      <el-radio-button value="sequential">串行生成</el-radio-button>
+                    </el-radio-group>
+                  </div>
+
+                  <!-- 视频提示词列表 -->
+                  <div class="video-prompts-list" style="max-height: 300px; overflow-y: auto">
+                    <div
+                      v-for="(prompt, index) in keyframeVideoPrompts"
+                      :key="index"
+                      class="prompt-item"
+                      style="
+                        margin-bottom: 12px;
+                        padding: 12px;
+                        background: #fff;
+                        border-radius: 4px;
+                      "
+                    >
+                      <div class="prompt-header" style="display: flex; align-items: center; margin-bottom: 8px">
+                        <el-tag size="small" type="primary">帧{{ index + 1 }} → 帧{{ index + 2 }}</el-tag>
+                        <span style="margin-left: 8px; font-size: 12px; color: #666">
+                          视频提示词
+                        </span>
+                      </div>
+                      <el-input
+                        v-model="keyframeVideoPrompts[index]"
+                        type="textarea"
+                        :rows="2"
+                        placeholder="描述从帧{{ index + 1 }}到帧{{ index + 2 }}的动作过渡..."
+                      />
+                    </div>
+                  </div>
+
+                  <!-- 操作按钮 -->
+                  <div class="action-buttons" style="margin-top: 12px; display: flex; gap: 8px">
+                    <el-button
+                      @click="generateKeyframeVideoPrompts"
+                      :loading="generatingKeyframePrompts"
+                      :disabled="generatingKeyframeVideos"
+                    >
+                      <el-icon><MagicStick /></el-icon>
+                      生成视频提示词
+                    </el-button>
+                    <el-button
+                      type="primary"
+                      @click="startKeyframeVideoGeneration"
+                      :loading="generatingKeyframeVideos"
+                      :disabled="generatingKeyframePrompts || keyframeVideoPrompts.length === 0"
+                    >
+                      <el-icon><VideoCamera /></el-icon>
+                      生成视频 ({{ keyframeVideoPrompts.length }}段)
+                    </el-button>
+                  </div>
+
+                  <!-- 生成进度 -->
+                  <div
+                    v-if="generatingKeyframeVideos && keyframeVideoTaskId"
+                    class="progress-info"
+                    style="
+                      margin-top: 12px;
+                      padding: 12px;
+                      background: #e6f7ff;
+                      border-radius: 4px;
+                      text-align: center;
+                    "
+                  >
+                    <el-progress :percentage="keyframeVideoProgress" :status="keyframeVideoProgress === 100 ? 'success' : ''" />
+                    <span style="margin-top: 8px">{{ keyframeVideoStatus }}</span>
+                  </div>
+                </div>
+
                 <!-- 参考图片设置 -->
                 <div
                   v-if="
@@ -2204,6 +2295,15 @@ const actionSequenceProgress = ref("");
 const actionFramePrompts = ref<{ prompt: string; description: string }[]>([]);
 const actionGridType = ref<4 | 6 | 9>(9); // 宫格类型：4/6/9
 const actionGridTypeLocked = ref(false); // 提取提示词后锁定宫格类型
+
+// 关键帧序列视频生成相关状态
+const keyframeGenerationMode = ref<"parallel" | "sequential">("parallel");
+const keyframeVideoPrompts = ref<string[]>([]);
+const generatingKeyframePrompts = ref(false);
+const generatingKeyframeVideos = ref(false);
+const keyframeVideoTaskId = ref<string | null>(null);
+const keyframeVideoProgress = ref(0);
+const keyframeVideoStatus = ref("");
 
 // 初始化动作序列帧提示词数组（根据宫格类型）
 const initActionFramePrompts = (count?: number) => {
@@ -3949,6 +4049,119 @@ const handleGenerateActionSequenceImages = async () => {
     generatingActionSequence.value = false;
     actionSequenceProgress.value = "";
     ElMessage.error(error.message || "启动生成失败");
+  }
+};
+
+// 生成关键帧视频提示词
+const generateKeyframeVideoPromptsHandler = async () => {
+  if (!currentStoryboard.value) {
+    ElMessage.warning("请先选择镜头");
+    return;
+  }
+  
+  // 获取动作序列图片
+  const actionImages = videoReferenceImages.value.filter(
+    (i) => i.status === "completed" && i.image_url && i.frame_type === "action"
+  );
+  
+  if (actionImages.length < 2) {
+    ElMessage.warning("至少需要2张动作序列图片");
+    return;
+  }
+  
+  generatingKeyframePrompts.value = true;
+  
+  try {
+    const frameImageIds = actionImages.map((img) => img.id);
+    const result = await videoAPI.generateKeyframeVideoPrompts({
+      storyboard_id: currentStoryboard.value.id,
+      frame_image_ids: frameImageIds,
+    });
+  
+    keyframeVideoPrompts.value = result.prompts || [];
+    ElMessage.success("视频提示词生成成功");
+  } catch (error: any) {
+    ElMessage.error(error.message || "生成视频提示词失败");
+  } finally {
+    generatingKeyframePrompts.value = false;
+  }
+};
+
+// 生成关键帧序列视频
+const startKeyframeVideoGeneration = async () => {
+  if (!currentStoryboard.value) {
+    ElMessage.warning("请先选择镜头");
+    return;
+  }
+  
+  if (keyframeVideoPrompts.value.length === 0) {
+    ElMessage.warning("请先生成视频提示词");
+    return;
+  }
+  
+  // 获取动作序列图片
+  const actionImages = videoReferenceImages.value.filter(
+    (i) => i.status === "completed" && i.image_url && i.frame_type === "action"
+  );
+  
+  if (actionImages.length < 2) {
+    ElMessage.warning("至少需要2张动作序列图片");
+    return;
+  }
+  
+  generatingKeyframeVideos.value = true;
+  keyframeVideoProgress.value = 0;
+  keyframeVideoStatus.value = "正在启动...";
+  
+  try {
+    const frameImageIds = actionImages.map((img) => img.id);
+    const result = await videoAPI.generateKeyframeSequenceVideos({
+      storyboard_id: currentStoryboard.value.id,
+      drama_id: dramaId,
+      frame_image_ids: frameImageIds,
+      video_prompts: keyframeVideoPrompts.value,
+      generation_mode: keyframeGenerationMode.value,
+      model: selectedVideoModel.value || undefined,
+    });
+  
+    const taskId = result.task_id;
+    keyframeVideoTaskId.value = taskId;
+    keyframeVideoStatus.value = "视频生成中...";
+  
+    // 轮询任务状态
+    const pollInterval = setInterval(async () => {
+      try {
+        const task = await taskAPI.getStatus(taskId);
+        if (task.status === "completed") {
+          clearInterval(pollInterval);
+          generatingKeyframeVideos.value = false;
+          keyframeVideoProgress.value = 100;
+          keyframeVideoStatus.value = "生成完成";
+          ElMessage.success("关键帧序列视频生成完成");
+          // 刷新视频列表
+          await loadGeneratedVideos();
+        } else if (task.status === "failed") {
+          clearInterval(pollInterval);
+          generatingKeyframeVideos.value = false;
+          keyframeVideoStatus.value = "";
+          ElMessage.error(task.error || "生成失败");
+        } else {
+          // 更新进度
+          if (task.message) {
+            keyframeVideoStatus.value = task.message;
+          }
+          if (task.progress > 0) {
+            keyframeVideoProgress.value = task.progress;
+          }
+        }
+      } catch (e) {
+        console.error("轮询任务状态失败:", e);
+      }
+    }, 3000);
+  } catch (error: any) {
+    generatingKeyframeVideos.value = false;
+    keyframeVideoStatus.value = "";
+    ElMessage.error(error.message || "启动视频生成失败");
   }
 };
 const uploadImage = () => {
