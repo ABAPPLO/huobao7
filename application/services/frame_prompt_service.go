@@ -779,7 +779,7 @@ func (s *FramePromptService) processActionSequenceImages(taskID string, storyboa
 		return
 	}
 
-	frameType := "action"
+		frameType := "action"
 	imageURL := ""
 	if s.localStorage != nil {
 		imageURL = s.localStorage.GetURL(*compositePath)

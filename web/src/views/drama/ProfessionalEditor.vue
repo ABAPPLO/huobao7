@@ -1246,7 +1246,7 @@
                             selected: selectedImagesForVideo.includes(img.id),
                           }"
                           style="position: relative"
-                          @click="handleImageSelect(img.id)"
+                          @click="handleKeyframeImageClick(img.id) || handleImageSelect(img.id)"
                         >
                           <el-image
                             :src="getImageUrl(img)"
@@ -1300,7 +1300,7 @@
 
                 <!-- 关键帧序列视频生成区域 -->
                 <div
-                  v-if="selectedVideoFrameType === 'action' && actionSequenceImages.length >= 2"
+                  v-if="selectedVideoFrameType === 'action' && allActionImages.length >= 2"
                   class="keyframe-video-section"
                   style="
                     margin-top: 16px;
@@ -1309,9 +1309,15 @@
                     border-radius: 8px;
                   "
                 >
-                  <div class="section-title" style="font-weight: bold; margin-bottom: 12px">
-                    关键帧序列视频生成
-                    <el-tag type="info" size="small">{{ actionSequenceImages.length }}帧</el-tag>
+                  <div class="section-title" style="font-weight: bold; margin-bottom: 12px; display: flex; align-items: center; gap: 12px">
+                    <span>关键帧序列视频生成</span>
+                    <el-tag type="info" size="small">{{ actionSequenceImages.length }}帧 / {{ actionSequenceImages.length - 1 }}段视频</el-tag>
+                    <el-radio-group v-model="keyframeFrameCount" size="small" style="margin-left: auto">
+                      <el-radio-button :value="4">4帧</el-radio-button>
+                      <el-radio-button :value="6">6帧</el-radio-button>
+                      <el-radio-button :value="9">9帧</el-radio-button>
+                      <el-radio-button :value="0">全部({{ allActionImages.length }})</el-radio-button>
+                    </el-radio-group>
                   </div>
 
                   <!-- 生成方式选择 -->
@@ -1321,6 +1327,43 @@
                       <el-radio-button value="parallel">并行生成</el-radio-button>
                       <el-radio-button value="sequential">串行生成</el-radio-button>
                     </el-radio-group>
+                  </div>
+
+                  <!-- 帧插槽 -->
+                  <div class="keyframe-frame-slots" style="margin-bottom: 16px">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
+                      <span style="font-size: 13px; color: #606266; font-weight: 500">帧分配</span>
+                      <el-tag type="info" size="small">
+                        {{ keyframeFrameSlots.filter(id => id !== null).length }}/{{ keyframeFrameSlots.length }} 已分配
+                      </el-tag>
+                      <el-button size="small" text @click="autoFillKeyframeSlots" style="margin-left: auto">
+                        自动填充
+                      </el-button>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center">
+                      <template v-for="(slotImageId, index) in keyframeFrameSlots" :key="index">
+                        <div
+                          class="frame-slot"
+                          :class="{ active: activeKeyframeSlot === index }"
+                          @click="activeKeyframeSlot = index"
+                        >
+                          <div class="frame-slot-label">帧{{ index + 1 }}</div>
+                          <div class="frame-slot-image" v-if="getKeyframeSlotImage(index)">
+                            <img
+                              :src="getImageUrl(getKeyframeSlotImage(index))"
+                              style="width: 100%; height: 100%; object-fit: cover"
+                            />
+                            <div class="frame-slot-remove" @click.stop="clearKeyframeSlot(index)">
+                              <el-icon :size="12" color="#fff"><Close /></el-icon>
+                            </div>
+                          </div>
+                          <div v-else class="frame-slot-placeholder">
+                            <el-icon :size="18" color="#c0c4cc"><Plus /></el-icon>
+                          </div>
+                        </div>
+                        <el-icon v-if="index < keyframeFrameSlots.length - 1" :size="14" color="#909399" style="flex-shrink: 0"><Right /></el-icon>
+                      </template>
+                    </div>
                   </div>
 
                   <!-- 视频提示词列表 -->
@@ -2343,6 +2386,87 @@ const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
 const videoReferenceImages = ref<ImageGeneration[]>([]);
 const selectedVideoModel = ref<string>("");
 const selectedReferenceMode = ref<string>(""); // 参考图模式：single, first_last, multiple, none
+
+// 动作序列图片（用于关键帧序列视频生成）
+const keyframeFrameCount = ref<number>(0); // 0 表示全部
+const allActionImages = computed(() => {
+  return videoReferenceImages.value
+    .filter((i) => i.status === "completed" && i.image_url && i.frame_type === "action")
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+});
+const actionSequenceImages = computed(() => {
+  if (keyframeFrameCount.value === 0) return allActionImages.value;
+  return allActionImages.value.slice(0, keyframeFrameCount.value);
+});
+
+// 监听宫格类型变化，同步更新关键帧帧数选择
+watch(actionGridType, (newType) => {
+  keyframeFrameCount.value = newType;
+}, { immediate: true });
+
+// 关键帧帧插槽：用户手动分配每帧使用的图片
+const keyframeFrameSlots = ref<(number | null)[]>([]);
+const activeKeyframeSlot = ref<number>(-1);
+
+// 自动填充帧插槽
+const autoFillKeyframeSlots = () => {
+  const count = keyframeFrameCount.value === 0
+    ? allActionImages.value.length
+    : keyframeFrameCount.value;
+  keyframeFrameSlots.value = actionSequenceImages.value
+    .slice(0, count)
+    .map((img) => img.id);
+  activeKeyframeSlot.value = -1;
+};
+
+// 监听帧数和图片变化，自动填充
+watch([keyframeFrameCount, allActionImages], () => {
+  const count = keyframeFrameCount.value === 0
+    ? allActionImages.value.length
+    : keyframeFrameCount.value;
+  const newSlots: (number | null)[] = [];
+  for (let i = 0; i < count; i++) {
+    if (i < keyframeFrameSlots.value.length && keyframeFrameSlots.value[i] !== null) {
+      const existingId = keyframeFrameSlots.value[i];
+      if (allActionImages.value.some((img) => img.id === existingId)) {
+        newSlots.push(existingId);
+        continue;
+      }
+    }
+    if (i < actionSequenceImages.value.length) {
+      newSlots.push(actionSequenceImages.value[i].id);
+    } else {
+      newSlots.push(null);
+    }
+  }
+  keyframeFrameSlots.value = newSlots;
+}, { immediate: true });
+
+// 获取插槽中的图片对象
+const getKeyframeSlotImage = (index: number) => {
+  const imageId = keyframeFrameSlots.value[index];
+  if (imageId === null || imageId === undefined) return null;
+  return allActionImages.value.find((img) => img.id === imageId) || null;
+};
+
+// 清空指定插槽
+const clearKeyframeSlot = (index: number) => {
+  keyframeFrameSlots.value[index] = null;
+  activeKeyframeSlot.value = -1;
+};
+
+// 点击图片分配到激活的帧插槽
+const handleKeyframeImageClick = (imageId: number): boolean => {
+  if (activeKeyframeSlot.value < 0) return false;
+  const existingSlotIndex = keyframeFrameSlots.value.indexOf(imageId);
+  const currentSlotValue = keyframeFrameSlots.value[activeKeyframeSlot.value];
+  if (existingSlotIndex >= 0 && existingSlotIndex !== activeKeyframeSlot.value) {
+    keyframeFrameSlots.value[existingSlotIndex] = currentSlotValue;
+  }
+  keyframeFrameSlots.value[activeKeyframeSlot.value] = imageId;
+  activeKeyframeSlot.value = -1;
+  return true;
+};
 const previewImageUrl = ref<string>(""); // 预览大图的URL
 const videoModelCapabilities = ref<VideoModelCapability[]>([]);
 let videoPollingTimer: any = null;
@@ -4053,31 +4177,28 @@ const handleGenerateActionSequenceImages = async () => {
 };
 
 // 生成关键帧视频提示词
-const generateKeyframeVideoPromptsHandler = async () => {
+const generateKeyframeVideoPrompts = async () => {
   if (!currentStoryboard.value) {
     ElMessage.warning("请先选择镜头");
     return;
   }
-  
-  // 获取动作序列图片
-  const actionImages = videoReferenceImages.value.filter(
-    (i) => i.status === "completed" && i.image_url && i.frame_type === "action"
-  );
-  
-  if (actionImages.length < 2) {
-    ElMessage.warning("至少需要2张动作序列图片");
+
+  // 使用帧插槽中的图片ID
+  const frameImageIds = keyframeFrameSlots.value.filter((id) => id !== null) as number[];
+
+  if (frameImageIds.length < 2) {
+    ElMessage.warning("请至少分配2帧图片到帧插槽中");
     return;
   }
-  
+
   generatingKeyframePrompts.value = true;
-  
+
   try {
-    const frameImageIds = actionImages.map((img) => img.id);
     const result = await videoAPI.generateKeyframeVideoPrompts({
       storyboard_id: currentStoryboard.value.id,
       frame_image_ids: frameImageIds,
     });
-  
+
     keyframeVideoPrompts.value = result.prompts || [];
     ElMessage.success("视频提示词生成成功");
   } catch (error: any) {
@@ -4098,26 +4219,21 @@ const startKeyframeVideoGeneration = async () => {
     ElMessage.warning("请先生成视频提示词");
     return;
   }
-  
-  // 获取动作序列图片
-  const actionImages = videoReferenceImages.value.filter(
-    (i) => i.status === "completed" && i.image_url && i.frame_type === "action"
-  );
-  
-  if (actionImages.length < 2) {
-    ElMessage.warning("至少需要2张动作序列图片");
-    return;
-  }
-  
+
   generatingKeyframeVideos.value = true;
   keyframeVideoProgress.value = 0;
   keyframeVideoStatus.value = "正在启动...";
-  
+
   try {
-    const frameImageIds = actionImages.map((img) => img.id);
+    const frameImageIds = keyframeFrameSlots.value.filter((id) => id !== null) as number[];
+    if (frameImageIds.length < 2) {
+      ElMessage.warning("请至少分配2帧图片到帧插槽中");
+      generatingKeyframeVideos.value = false;
+      return;
+    }
     const result = await videoAPI.generateKeyframeSequenceVideos({
       storyboard_id: currentStoryboard.value.id,
-      drama_id: dramaId,
+      drama_id: String(dramaId),
       frame_image_ids: frameImageIds,
       video_prompts: keyframeVideoPrompts.value,
       generation_mode: keyframeGenerationMode.value,
@@ -4139,7 +4255,7 @@ const startKeyframeVideoGeneration = async () => {
           keyframeVideoStatus.value = "生成完成";
           ElMessage.success("关键帧序列视频生成完成");
           // 刷新视频列表
-          await loadGeneratedVideos();
+          await loadStoryboardVideos(currentStoryboard.value.id);
         } else if (task.status === "failed") {
           clearInterval(pollInterval);
           generatingKeyframeVideos.value = false;
@@ -6799,6 +6915,61 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: all 0.3s ease;
   background: var(--bg-card);
+}
+
+.frame-slot {
+  position: relative;
+  text-align: center;
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 4px;
+  transition: all 0.2s;
+}
+.frame-slot.active {
+  border-color: #409eff;
+  box-shadow: 0 0 8px 2px rgba(64, 158, 255, 0.2);
+}
+.frame-slot:hover {
+  border-color: #dcdfe6;
+}
+.frame-slot-label {
+  font-size: 11px;
+  color: #909399;
+  margin-bottom: 4px;
+}
+.frame-slot-image {
+  width: 72px;
+  height: 48px;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.frame-slot-placeholder {
+  width: 72px;
+  height: 48px;
+  border: 2px dashed #dcdfe6;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+.frame-slot-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  background: rgba(0, 000, 0.6);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.frame-slot-remove:hover {
+  background: rgba(255, 73, 73, 0.9);
 }
 
 .grid-cell:hover {

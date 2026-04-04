@@ -833,7 +833,7 @@ func (s *VideoGenerationService) convertImageToBase64(imageURL string) (string, 
 // KeyframeSequenceVideoRequest 关键帧序列视频生成请求
 type KeyframeSequenceVideoRequest struct {
 	StoryboardID   uint     `json:"storyboard_id" binding:"required"`
-	DramaID        string   `json:"drama_id" binding:"required"`
+	DramaID        interface{} `json:"drama_id"`
 	FrameImageIDs  []uint   `json:"frame_image_ids" binding:"required,min=2"`
 	VideoPrompts   []string `json:"video_prompts" binding:"required"`
 	GenerationMode string   `json:"generation_mode"` // "parallel" 或 "sequential"
@@ -899,6 +899,22 @@ func (s *VideoGenerationService) GenerateKeyframeVideoPrompts(storyboardID uint,
 		s.log.Warnw("Failed to parse AI response as JSON, using fallback", "error", err)
 		// Fallback: 生成简单的提示词
 		result.Prompts = s.generateFallbackVideoPrompts(frameDescriptions)
+	}
+
+	// 校验并修正提示词数量，确保与帧数-1匹配
+	expectedCount := len(frameImages) - 1
+	if len(result.Prompts) > expectedCount {
+		result.Prompts = result.Prompts[:expectedCount]
+	} else if len(result.Prompts) < expectedCount {
+		fallback := s.generateFallbackVideoPrompts(frameDescriptions)
+		for len(result.Prompts) < expectedCount {
+			idx := len(result.Prompts)
+			if idx < len(fallback) {
+				result.Prompts = append(result.Prompts, fallback[idx])
+			} else {
+				result.Prompts = append(result.Prompts, fmt.Sprintf("从第%d帧到第%d帧的流畅过渡", idx+1, idx+2))
+			}
+		}
 	}
 
 	return result.Prompts, nil
@@ -1053,7 +1069,7 @@ func (s *VideoGenerationService) generateSingleKeyframeVideo(req *KeyframeSequen
 		return 0, fmt.Errorf("帧图片URL为空")
 	}
 
-	dramaID, _ := strconv.ParseUint(req.DramaID, 10, 32)
+	dramaID, _ := strconv.ParseUint(fmt.Sprintf("%v", req.DramaID), 10, 32)
 
 	videoGen := &models.VideoGeneration{
 		StoryboardID:   &req.StoryboardID,
