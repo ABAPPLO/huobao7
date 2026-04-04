@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
@@ -146,4 +147,47 @@ func (h *VideoGenerationHandler) DeleteVideoGeneration(c *gin.Context) {
 	}
 
 	response.Success(c, nil)
+}
+
+// GenerateKeyframeVideoPrompts 生成关键帧视频提示词
+func (h *VideoGenerationHandler) GenerateKeyframeVideoPrompts(c *gin.Context) {
+	var req struct {
+		StoryboardID  uint   `json:"storyboard_id" binding:"required"`
+		FrameImageIDs []uint `json:"frame_image_ids" binding:"required,min=2"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	prompts, err := h.videoService.GenerateKeyframeVideoPrompts(req.StoryboardID, req.FrameImageIDs)
+	if err != nil {
+		h.log.Errorw("Failed to generate keyframe video prompts", "error", err)
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{"prompts": prompts})
+}
+
+// GenerateKeyframeSequenceVideos 批量生成关键帧序列视频
+func (h *VideoGenerationHandler) GenerateKeyframeSequenceVideos(c *gin.Context) {
+	var req services.KeyframeSequenceVideoRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	taskID, err := h.videoService.GenerateKeyframeSequenceVideos(&req)
+	if err != nil {
+		h.log.Errorw("Failed to generate keyframe sequence videos", "error", err)
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"task_id": taskID,
+		"status":  "pending",
+		"message": fmt.Sprintf("关键帧序列视频生成任务已创建，共%d个视频", len(req.VideoPrompts)),
+	})
 }

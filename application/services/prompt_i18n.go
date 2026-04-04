@@ -1224,3 +1224,71 @@ You are a top-tier video dynamics analyst and synthesis expert. You can accurate
 
 	return ""
 }
+
+// GetKeyframeVideoPrompts 生成关键帧序列的视频提示词
+// frameDescriptions: 各帧的描述信息
+// context: 镜头上下文（动作、场景等）
+func (p *PromptI18n) GetKeyframeVideoPrompts(frameDescriptions []string, context string) string {
+	frameCount := len(frameDescriptions)
+	if frameCount < 2 {
+		return ""
+	}
+
+	// 格式化帧列表
+	frameList := ""
+	for i, frame := range frameDescriptions {
+		if p.IsEnglish() {
+			frameList += fmt.Sprintf("- Frame %d: %s\n", i+1, frame)
+		} else {
+			frameList += fmt.Sprintf("- 第%d帧：%s\n", i+1, frame)
+		}
+	}
+
+	if p.IsEnglish() {
+		return fmt.Sprintf(`You are an expert in video action choreography. Generate %d video prompts for a keyframe sequence.
+
+**Context:**
+%s
+
+**Frame Descriptions:**
+%s
+
+**Task:**
+For each consecutive frame pair, generate a video prompt describing the transition action.
+
+**Rules:**
+1. Each prompt describes the movement/transition from frame N to frame N+1
+2. Use clear, descriptive language for AI video generation
+3. Focus on body movement, camera motion, and action progression
+4. Keep prompts concise but detailed (50-100 words each)
+5. Duration is determined by the model (max 12 seconds)
+
+**Output Format - Return ONLY this JSON:**
+{"prompts":["Video prompt for transition 1->2...","Video prompt for transition 2->3...","..."]}
+
+Generate %d prompts total.`, frameCount-1, context, frameList, frameCount-1)
+	}
+
+	return fmt.Sprintf(`你是一位视频动作编排专家。为一个关键帧序列生成 %d 个视频提示词。
+
+**场景上下文：**
+%s
+
+**各帧描述：**
+%s
+
+**任务：**
+为每一对相邻帧生成一个视频提示词，描述从帧N到帧N+1的过渡动作。
+
+**规则：**
+1. 每个提示词描述从帧N到帧N+1的动作过渡
+2. 使用清晰、描述性的语言，适合AI视频生成
+3. 重点关注身体动作、镜头运动和动作递进
+4. 提示词简洁但详细（每个50-100字）
+5. 视频时长由模型决定（最长12秒）
+
+**输出格式 - 只返回这个JSON：**
+{"prompts":["从帧1到帧2的过渡视频提示词...","从帧2到帧3的过渡视频提示词...","..."]}
+
+共生成 %d 个提示词。`, frameCount-1, context, frameList, frameCount-1)
+}

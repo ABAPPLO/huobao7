@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	models "github.com/drama-generator/backend/domain/models"
@@ -24,6 +25,7 @@ type VideoGenerationService struct {
 	aiService       *AIService
 	ffmpeg          *ffmpeg.FFmpeg
 	promptI18n      *PromptI18n
+	taskService     *TaskService
 }
 
 func NewVideoGenerationService(db *gorm.DB, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
@@ -35,6 +37,7 @@ func NewVideoGenerationService(db *gorm.DB, transferService *ResourceTransferSer
 		log:             log,
 		ffmpeg:          ffmpeg.NewFFmpeg(log),
 		promptI18n:      promptI18n,
+		taskService:     NewTaskService(db, log),
 	}
 
 	go service.RecoverPendingTasks()
@@ -824,4 +827,252 @@ func (s *VideoGenerationService) convertImageToBase64(imageURL string) (string, 
 	}
 	s.log.Infow("Converted remote image to base64", "url", imageURL[:urlLen])
 	return base64Str, nil
+}
+
+
+// KeyframeSequenceVideoRequest 关键帧序列视频生成请求
+type KeyframeSequenceVideoRequest struct {
+	StoryboardID   uint     `json:"storyboard_id" binding:"required"`
+	DramaID        string   `json:"drama_id" binding:"required"`
+	FrameImageIDs  []uint   `json:"frame_image_ids" binding:"required,min=2"`
+	VideoPrompts   []string `json:"video_prompts" binding:"required"`
+	GenerationMode string   `json:"generation_mode"` // "parallel" 或 "sequential"
+	Model          string   `json:"model"`
+	Provider       string   `json:"provider"`
+}
+
+// GenerateKeyframeVideoPrompts 生成关键帧视频提示词
+func (s *VideoGenerationService) GenerateKeyframeVideoPrompts(storyboardID uint, frameImageIDs []uint) ([]string, error) {
+	if len(frameImageIDs) < 2 {
+		return nil, fmt.Errorf("至少需要2帧图片")
+	}
+
+	// 获取帧图片
+	var frameImages []models.ImageGeneration
+	if err := s.db.Where("id IN ?", frameImageIDs).Order("id ASC").Find(&frameImages).Error; err != nil {
+		return nil, fmt.Errorf("查询帧图片失败: %w", err)
+	}
+
+	if len(frameImages) < 2 {
+		return nil, fmt.Errorf("未找到足够的帧图片")
+	}
+
+	// 获取镜头信息
+	var storyboard models.Storyboard
+	if err := s.db.First(&storyboard, storyboardID).Error; err != nil {
+		return nil, fmt.Errorf("镜头不存在")
+	}
+
+	// 构建上下文
+	var contextParts []string
+	if storyboard.Description != nil {
+		contextParts = append(contextParts, *storyboard.Description)
+	}
+	if storyboard.Action != nil {
+		contextParts = append(contextParts, "动作: "+*storyboard.Action)
+	}
+	context := strings.Join(contextParts, "; ")
+
+	// 构建帧描述列表
+	var frameDescriptions []string
+	for _, img := range frameImages {
+		if img.Prompt != "" {
+			frameDescriptions = append(frameDescriptions, img.Prompt)
+		} else {
+			frameDescriptions = append(frameDescriptions, "帧画面")
+		}
+	}
+
+	// 调用AI生成视频提示词
+	userPrompt := s.promptI18n.GetKeyframeVideoPrompts(frameDescriptions, context)
+
+	aiResponse, err := s.aiService.GenerateText(userPrompt, "")
+	if err != nil {
+		return nil, fmt.Errorf("AI生成失败: %w", err)
+	}
+
+	// 解析JSON响应
+	var result struct {
+		Prompts []string `json:"prompts"`
+	}
+	if err := json.Unmarshal([]byte(aiResponse), &result); err != nil {
+		s.log.Warnw("Failed to parse AI response as JSON, using fallback", "error", err)
+		// Fallback: 生成简单的提示词
+		result.Prompts = s.generateFallbackVideoPrompts(frameDescriptions)
+	}
+
+	return result.Prompts, nil
+}
+
+// generateFallbackVideoPrompts 生成fallback视频提示词
+func (s *VideoGenerationService) generateFallbackVideoPrompts(frameDescriptions []string) []string {
+	var prompts []string
+	for i := 0; i < len(frameDescriptions)-1; i++ {
+		prompts = append(prompts, fmt.Sprintf("从第%d帧到第%d帧的流畅过渡，自然动作，电影级运镜", i+1, i+2))
+	}
+	return prompts
+}
+
+// GenerateKeyframeSequenceVideos 批量生成关键帧序列视频
+func (s *VideoGenerationService) GenerateKeyframeSequenceVideos(req *KeyframeSequenceVideoRequest) (string, error) {
+	if len(req.FrameImageIDs) < 2 {
+		return "", fmt.Errorf("至少需要2帧图片")
+	}
+	if len(req.VideoPrompts) != len(req.FrameImageIDs)-1 {
+		return "", fmt.Errorf("视频提示词数量应为帧数-1")
+	}
+
+	// 获取帧图片
+	var frameImages []models.ImageGeneration
+	if err := s.db.Where("id IN ?", req.FrameImageIDs).Order("id ASC").Find(&frameImages).Error; err != nil {
+		return "", fmt.Errorf("查询帧图片失败: %w", err)
+	}
+
+	if len(frameImages) < 2 {
+		return "", fmt.Errorf("未找到足够的帧图片")
+	}
+
+	// 按请求的ID顺序重新排序
+	imageMap := make(map[uint]models.ImageGeneration)
+	for _, img := range frameImages {
+		imageMap[img.ID] = img
+	}
+	sortedImages := make([]models.ImageGeneration, len(req.FrameImageIDs))
+	for i, id := range req.FrameImageIDs {
+		if img, ok := imageMap[id]; ok {
+			sortedImages[i] = img
+		}
+	}
+
+	// 创建任务
+	task, err := s.taskService.CreateTask("keyframe_videos", fmt.Sprintf("%d", req.StoryboardID))
+	if err != nil {
+		return "", err
+	}
+
+	// 异步处理
+	if req.GenerationMode == "sequential" {
+		go s.processSequentialKeyframeVideos(task.ID, req, sortedImages)
+	} else {
+		go s.processParallelKeyframeVideos(task.ID, req, sortedImages)
+	}
+
+	return task.ID, nil
+}
+
+// processParallelKeyframeVideos 并行生成所有视频
+func (s *VideoGenerationService) processParallelKeyframeVideos(taskID string, req *KeyframeSequenceVideoRequest, frameImages []models.ImageGeneration) {
+	totalVideos := len(req.VideoPrompts)
+	s.taskService.UpdateTaskStatus(taskID, "processing", 0, fmt.Sprintf("开始并行生成 %d 个视频...", totalVideos))
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	completedCount := 0
+	var videoIDs []uint
+
+	for i := 0; i < totalVideos; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+
+			firstFrame := frameImages[index]
+			lastFrame := frameImages[index+1]
+
+			videoID, err := s.generateSingleKeyframeVideo(req, &firstFrame, &lastFrame, req.VideoPrompts[index])
+			if err != nil {
+				s.log.Errorw("Failed to generate keyframe video", "index", index, "error", err)
+				return
+			}
+
+			mu.Lock()
+			completedCount++
+			videoIDs = append(videoIDs, videoID)
+			progress := completedCount * 100 / totalVideos
+			s.taskService.UpdateTaskStatus(taskID, "processing", progress, fmt.Sprintf("已生成 %d/%d 个视频", completedCount, totalVideos))
+			mu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+
+	s.taskService.UpdateTaskResult(taskID, map[string]interface{}{"video_ids": videoIDs})
+	if completedCount == totalVideos {
+		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("成功生成 %d 个视频", totalVideos))
+	} else {
+		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("生成了 %d/%d 个视频", completedCount, totalVideos))
+	}
+}
+
+// processSequentialKeyframeVideos 串行生成视频
+func (s *VideoGenerationService) processSequentialKeyframeVideos(taskID string, req *KeyframeSequenceVideoRequest, frameImages []models.ImageGeneration) {
+	totalVideos := len(req.VideoPrompts)
+	s.taskService.UpdateTaskStatus(taskID, "processing", 0, fmt.Sprintf("开始串行生成 %d 个视频...", totalVideos))
+
+	var videoIDs []uint
+
+	for i := 0; i < totalVideos; i++ {
+		s.taskService.UpdateTaskStatus(taskID, "processing", i*100/totalVideos, fmt.Sprintf("正在生成第 %d/%d 个视频...", i+1, totalVideos))
+
+		firstFrame := frameImages[i]
+		lastFrame := frameImages[i+1]
+
+		videoID, err := s.generateSingleKeyframeVideo(req, &firstFrame, &lastFrame, req.VideoPrompts[i])
+		if err != nil {
+			s.log.Errorw("Failed to generate keyframe video", "index", i, "error", err)
+			continue
+		}
+
+		videoIDs = append(videoIDs, videoID)
+	}
+
+	completedCount := len(videoIDs)
+	s.taskService.UpdateTaskResult(taskID, map[string]interface{}{"video_ids": videoIDs})
+	if completedCount == totalVideos {
+		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("成功生成 %d 个视频", totalVideos))
+	} else {
+		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("生成了 %d/%d 个视频", completedCount, totalVideos))
+	}
+}
+
+// generateSingleKeyframeVideo 生成单个关键帧视频
+func (s *VideoGenerationService) generateSingleKeyframeVideo(req *KeyframeSequenceVideoRequest, firstFrame, lastFrame *models.ImageGeneration, prompt string) (uint, error) {
+	// 构建首尾帧URL
+	var firstFrameURL, lastFrameURL string
+	if firstFrame.LocalPath != nil && *firstFrame.LocalPath != "" {
+		firstFrameURL = *firstFrame.LocalPath
+	} else if firstFrame.ImageURL != nil {
+		firstFrameURL = *firstFrame.ImageURL
+	}
+	if lastFrame.LocalPath != nil && *lastFrame.LocalPath != "" {
+		lastFrameURL = *lastFrame.LocalPath
+	} else if lastFrame.ImageURL != nil {
+		lastFrameURL = *lastFrame.ImageURL
+	}
+
+	if firstFrameURL == "" || lastFrameURL == "" {
+		return 0, fmt.Errorf("帧图片URL为空")
+	}
+
+	dramaID, _ := strconv.ParseUint(req.DramaID, 10, 32)
+
+	videoGen := &models.VideoGeneration{
+		StoryboardID:   &req.StoryboardID,
+		DramaID:        uint(dramaID),
+		Provider:       req.Provider,
+		Prompt:         prompt,
+		Model:          req.Model,
+		FirstFrameURL:  &firstFrameURL,
+		LastFrameURL:   &lastFrameURL,
+		ReferenceMode:  strPtr("first_last"),
+		Status:         models.VideoStatusPending,
+	}
+
+	if err := s.db.Create(videoGen).Error; err != nil {
+		return 0, fmt.Errorf("创建视频记录失败: %w", err)
+	}
+
+	// 启动异步处理
+	go s.ProcessVideoGeneration(videoGen.ID)
+
+	return videoGen.ID, nil
 }
