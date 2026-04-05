@@ -940,5 +940,211 @@ func (s *FramePromptService) resizeImage(src image.Image, w, h int) image.Image 
 	return dst
 }
 
+// BatchGenerateFirstFrameImages 一键批量生成剧集所有镜头的首帧图片
+// 先提取提示词，再生成图片，串行处理
+func (s *FramePromptService) BatchGenerateFirstFrameImages(episodeID string, model string) (string, error) {
+	if s.imageGenService == nil {
+		return "", fmt.Errorf("图片生成服务不可用")
+	}
+
+	// 验证剧集存在
+	var episode models.Episode
+	if err := s.db.First(&episode, episodeID).Error; err != nil {
+		return "", fmt.Errorf("剧集不存在: %w", err)
+	}
+
+	// 创建异步任务
+	task, err := s.taskService.CreateTask("batch_first_frame_images", episodeID)
+	if err != nil {
+		return "", fmt.Errorf("创建任务失败: %w", err)
+	}
+
+	go s.processBatchFirstFrameImages(task.ID, episodeID, model)
+
+	s.log.Infow("Batch first-frame images task created", "task_id", task.ID, "episode_id", episodeID)
+	return task.ID, nil
+}
+
+// processBatchFirstFrameImages 异步处理批量首帧图片生成
+func (s *FramePromptService) processBatchFirstFrameImages(taskID string, episodeID string, model string) {
+	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在加载镜头信息...")
+
+	// 加载剧集及其所有镜头
+	var episode models.Episode
+	if err := s.db.
+		Preload("Drama").
+		Preload("Storyboards", func(db *gorm.DB) *gorm.DB {
+			return db.Order("storyboard_number ASC")
+		}).
+		Preload("Storyboards.Characters").
+		Preload("Storyboards.Props").
+		Preload("Storyboards.Background").
+		First(&episode, episodeID).Error; err != nil {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("加载剧集失败: %w", err))
+		return
+	}
+
+	storyboards := episode.Storyboards
+	if len(storyboards) == 0 {
+		s.taskService.UpdateTaskError(taskID, fmt.Errorf("该剧集没有镜头"))
+		return
+	}
+
+	total := len(storyboards)
+	processed := 0
+	skipped := 0
+	failed := 0
+	var results []map[string]interface{}
+
+	for i, storyboard := range storyboards {
+		progress := (i + 1) * 100 / (total + 1)
+		s.taskService.UpdateTaskStatus(taskID, "processing", progress,
+			fmt.Sprintf("正在处理第 %d/%d 个镜头...", i+1, total))
+
+		// 检查是否已有完成的首帧图片
+		var existingCount int64
+		s.db.Model(&models.ImageGeneration{}).
+			Where("storyboard_id = ? AND frame_type = ? AND status = ?",
+				storyboard.ID, "first", models.ImageStatusCompleted).
+			Count(&existingCount)
+		if existingCount > 0 {
+			skipped++
+			s.log.Infow("Skipping storyboard with existing first-frame image",
+				"storyboard_id", storyboard.ID, "storyboard_number", storyboard.StoryboardNumber)
+			results = append(results, map[string]interface{}{
+				"storyboard_id":     storyboard.ID,
+				"storyboard_number": storyboard.StoryboardNumber,
+				"status":            "skipped",
+			})
+			continue
+		}
+
+		// 加载场景信息
+		var scene *models.Scene
+		if storyboard.SceneID != nil {
+			var s2 models.Scene
+			if err := s.db.First(&s2, *storyboard.SceneID).Error; err == nil {
+				scene = &s2
+			}
+		}
+
+		// 第1步：生成首帧提示词
+		s.taskService.UpdateTaskStatus(taskID, "processing", progress,
+			fmt.Sprintf("正在提取第 %d/%d 个镜头的首帧提示词...", i+1, total))
+
+		framePrompt := s.generateFirstFrame(storyboard, scene, episode.Drama.Style, model)
+		if framePrompt == nil || framePrompt.Prompt == "" {
+			failed++
+			s.log.Warnw("Failed to generate first-frame prompt",
+				"storyboard_id", storyboard.ID, "storyboard_number", storyboard.StoryboardNumber)
+			results = append(results, map[string]interface{}{
+				"storyboard_id":     storyboard.ID,
+				"storyboard_number": storyboard.StoryboardNumber,
+				"status":            "failed",
+				"error":             "提示词生成失败",
+			})
+			continue
+		}
+
+		// 保存提示词
+		s.saveFramePrompt(fmt.Sprintf("%d", storyboard.ID), "first",
+			framePrompt.Prompt, framePrompt.Description, "")
+
+		// 第2步：收集参考图片（场景背景 + 角色图片）
+		var referenceImages []string
+		if scene != nil && scene.LocalPath != nil && *scene.LocalPath != "" {
+			referenceImages = append(referenceImages, *scene.LocalPath)
+		}
+		for _, char := range storyboard.Characters {
+			if char.LocalPath != nil && *char.LocalPath != "" {
+				referenceImages = append(referenceImages, *char.LocalPath)
+			}
+		}
+
+		// 第3步：生成图片
+		s.taskService.UpdateTaskStatus(taskID, "processing", progress,
+			fmt.Sprintf("正在生成第 %d/%d 个镜头的首帧图片...", i+1, total))
+
+		storyboardIDUint := storyboard.ID
+		frameTypeStr := "first"
+		req := &GenerateImageRequest{
+			StoryboardID:    &storyboardIDUint,
+			DramaID:         fmt.Sprintf("%d", episode.DramaID),
+			ImageType:       "storyboard",
+			FrameType:       &frameTypeStr,
+			Prompt:          framePrompt.Prompt,
+			Provider:        s.config.AI.DefaultImageProvider,
+			ReferenceImages: referenceImages,
+		}
+
+		imageGen, err := s.imageGenService.GenerateImage(req)
+		if err != nil {
+			failed++
+			s.log.Errorw("Failed to generate first-frame image",
+				"storyboard_id", storyboard.ID, "error", err)
+			results = append(results, map[string]interface{}{
+				"storyboard_id":     storyboard.ID,
+				"storyboard_number": storyboard.StoryboardNumber,
+				"status":            "failed",
+				"error":             err.Error(),
+			})
+			continue
+		}
+
+		// 等待图片生成完成
+		completedURL, completedPath, waitErr := s.waitForImageCompletion(imageGen.ID)
+		if waitErr != nil {
+			failed++
+			s.log.Errorw("First-frame image generation failed or timed out",
+				"storyboard_id", storyboard.ID, "error", waitErr)
+			results = append(results, map[string]interface{}{
+				"storyboard_id":     storyboard.ID,
+				"storyboard_number": storyboard.StoryboardNumber,
+				"status":            "failed",
+				"error":             waitErr.Error(),
+			})
+			continue
+		}
+
+		processed++
+		resultEntry := map[string]interface{}{
+			"storyboard_id":     storyboard.ID,
+			"storyboard_number": storyboard.StoryboardNumber,
+			"prompt":            framePrompt.Prompt,
+			"status":            "completed",
+		}
+		if completedURL != nil {
+			resultEntry["image_url"] = *completedURL
+		}
+		if completedPath != nil {
+			resultEntry["local_path"] = *completedPath
+		}
+		results = append(results, resultEntry)
+
+		s.log.Infow("First-frame image generated",
+			"storyboard_id", storyboard.ID,
+			"storyboard_number", storyboard.StoryboardNumber,
+			"progress", fmt.Sprintf("%d/%d", i+1, total))
+	}
+
+	// 任务完成
+	s.taskService.UpdateTaskResult(taskID, map[string]interface{}{
+		"episode_id":        episodeID,
+		"total_storyboards": total,
+		"processed":         processed,
+		"skipped":           skipped,
+		"failed":            failed,
+		"results":           results,
+	})
+
+	s.log.Infow("Batch first-frame images completed",
+		"task_id", taskID,
+		"episode_id", episodeID,
+		"total", total,
+		"processed", processed,
+		"skipped", skipped,
+		"failed", failed)
+}
+
 func strPtr(s string) *string       { return &s }
 func timePtr(t time.Time) *time.Time { return &t }

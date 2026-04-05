@@ -62,6 +62,32 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 	})
 }
 
+// BatchGenerateFirstFrameImages 一键批量生成剧集所有镜头的首帧图片
+// POST /api/v1/episodes/:episode_id/batch-first-frame-images
+func (h *FramePromptHandler) BatchGenerateFirstFrameImages(c *gin.Context) {
+	episodeID := c.Param("episode_id")
+
+	var req struct {
+		Model string `json:"model"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.Model = ""
+	}
+
+	taskID, err := h.framePromptService.BatchGenerateFirstFrameImages(episodeID, req.Model)
+	if err != nil {
+		h.log.Errorw("Failed to batch generate first frame images", "error", err)
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"task_id": taskID,
+		"status":  "pending",
+		"message": "批量首帧图片生成任务已创建，正在后台处理...",
+	})
+}
+
 // GenerateActionSequenceImages 逐帧串行生成动作序列宫格图片
 // POST /api/v1/storyboards/:id/action-sequence-images
 func (h *FramePromptHandler) GenerateActionSequenceImages(c *gin.Context) {

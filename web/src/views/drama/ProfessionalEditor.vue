@@ -481,6 +481,21 @@
                   </el-radio-group>
                 </div>
 
+                <!-- 一键生成所有首帧图片 -->
+                <div class="batch-actions-bar" style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+                  <el-button
+                    type="primary"
+                    :loading="batchFirstFrameGenerating"
+                    @click="handleBatchFirstFrameGeneration"
+                    size="default"
+                  >
+                    {{ batchFirstFrameGenerating ? batchFirstFrameProgress : '一键生成所有首帧图片' }}
+                  </el-button>
+                  <span v-if="batchFirstFrameGenerating" style="font-size: 12px; color: var(--text-muted);">
+                    {{ batchFirstFrameMessage }}
+                  </span>
+                </div>
+
                 <!-- 提示词区域 -->
                 <div class="prompt-section">
                   <div class="section-label">
@@ -2255,7 +2270,7 @@ import {
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { propAPI } from "@/api/prop";
-import { generateFramePrompt, generateActionSequenceImages, type FrameType } from "@/api/frame";
+import { generateFramePrompt, generateActionSequenceImages, batchGenerateFirstFrameImages, type FrameType } from "@/api/frame";
 import { imageAPI } from "@/api/image";
 import { videoAPI } from "@/api/video";
 import { aiAPI } from "@/api/ai";
@@ -2325,6 +2340,11 @@ const currentFramePrompt = ref("");
 const generatingImage = ref(false);
 const generatedImages = ref<ImageGeneration[]>([]);
 const isSwitchingFrameType = ref(false); // 标志位：是否正在切换帧类型
+
+// 批量首帧图片生成状态
+const batchFirstFrameGenerating = ref(false);
+const batchFirstFrameProgress = ref('');
+const batchFirstFrameMessage = ref('');
 const loadingImages = ref(false);
 let pollingTimer: any = null;
 let pollingFrameType: FrameType | null = null; // 记录正在轮询的帧类型
@@ -3285,6 +3305,75 @@ const loadStoryboardImages = async (
   } finally {
     loadingImages.value = false;
   }
+};
+
+// 一键批量生成所有首帧图片
+const handleBatchFirstFrameGeneration = async () => {
+  if (!episodeId.value) {
+    ElMessage.error('剧集信息不存在');
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      '将为该剧集所有尚未生成首帧图片的镜头自动提取提示词并生成图片，是否继续？',
+      '一键生成所有首帧图片',
+      { type: 'info', confirmButtonText: '开始生成', cancelButtonText: '取消' }
+    );
+  } catch {
+    return;
+  }
+
+  batchFirstFrameGenerating.value = true;
+  batchFirstFrameProgress.value = '提交任务中...';
+  batchFirstFrameMessage.value = '';
+
+  try {
+    const result = await batchGenerateFirstFrameImages(
+      Number(episodeId.value)
+    );
+    await pollBatchFirstFrameTask(result.task_id);
+  } catch (error: any) {
+    ElMessage.error(error.message || '批量生成任务启动失败');
+    batchFirstFrameGenerating.value = false;
+  }
+};
+
+const pollBatchFirstFrameTask = async (taskId: string) => {
+  const maxAttempts = 1200; // 最多40分钟（2秒间隔）
+  const interval = 2000;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, interval));
+
+    try {
+      const task = await taskAPI.getStatus(taskId);
+
+      batchFirstFrameMessage.value = task.message || '';
+      if (task.progress !== undefined && task.progress > 0) {
+        batchFirstFrameProgress.value = `${task.progress}%`;
+      }
+
+      if (task.status === 'completed') {
+        batchFirstFrameGenerating.value = false;
+        ElMessage.success('所有首帧图片生成完成！');
+        // 重新加载当前镜头的图片
+        if (currentStoryboard.value) {
+          await loadStoryboardImages(currentStoryboard.value.id, selectedFrameType.value);
+        }
+        return;
+      } else if (task.status === 'failed') {
+        batchFirstFrameGenerating.value = false;
+        ElMessage.error(`批量生成失败: ${task.error || '未知错误'}`);
+        return;
+      }
+    } catch (error) {
+      console.error('Polling batch first-frame task failed:', error);
+    }
+  }
+
+  batchFirstFrameGenerating.value = false;
+  ElMessage.warning('批量生成超时，请刷新页面查看结果');
 };
 
 // 启动状态轮询

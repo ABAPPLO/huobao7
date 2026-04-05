@@ -115,3 +115,13 @@ export interface FramePromptRecord {
 export function getStoryboardFramePrompts(storyboardId: number): Promise<{ frame_prompts: FramePromptRecord[] }> {
   return request.get<{ frame_prompts: FramePromptRecord[] }>(`/storyboards/${storyboardId}/frame-prompts`)
 }
+
+/**
+ * 一键批量生成剧集所有镜头的首帧图片（先提取提示词，再生成图片）
+ */
+export function batchGenerateFirstFrameImages(
+  episodeId: number,
+  model?: string
+): Promise<{ task_id: string; status: string; message: string }> {
+  return request.post(`/episodes/${episodeId}/batch-first-frame-images`, { model })
+}
