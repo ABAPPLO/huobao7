@@ -3,6 +3,8 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -796,9 +798,12 @@ func (s *VideoGenerationService) convertImageToBase64(imageURL string) (string, 
 			if len(parts) == 2 {
 				relativePath = parts[1]
 			}
-		} else if !strings.HasPrefix(imageURL, "http://") && !strings.HasPrefix(imageURL, "https://") {
-			// 2. 如果不是 HTTP/HTTPS URL，视为相对路径（如 "images/xxx.jpg"）
+		} else if !strings.HasPrefix(imageURL, "http://") && !strings.HasPrefix(imageURL, "https://") && !strings.HasPrefix(imageURL, "/") {
+			// 2. 如果不是 HTTP/HTTPS URL 也不是绝对路径，视为相对路径（如 "images/xxx.jpg"）
 			relativePath = imageURL
+		} else if strings.HasPrefix(imageURL, "/") {
+			// 3. 绝对路径（如 "/tmp/xxx"），直接使用
+			relativePath = ""
 		}
 
 		// 如果识别出相对路径，尝试读取本地文件
@@ -891,11 +896,20 @@ func (s *VideoGenerationService) GenerateKeyframeVideoPrompts(storyboardID uint,
 		return nil, fmt.Errorf("AI生成失败: %w", err)
 	}
 
+	// 提取纯JSON内容（去除可能的markdown代码块包裹）
+	jsonStr := aiResponse
+	if idx := strings.Index(jsonStr, "{"); idx >= 0 {
+		jsonStr = jsonStr[idx:]
+	}
+	if idx := strings.LastIndex(jsonStr, "}"); idx >= 0 {
+		jsonStr = jsonStr[:idx+1]
+	}
+
 	// 解析JSON响应
 	var result struct {
 		Prompts []string `json:"prompts"`
 	}
-	if err := json.Unmarshal([]byte(aiResponse), &result); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
 		s.log.Warnw("Failed to parse AI response as JSON, using fallback", "error", err)
 		// Fallback: 生成简单的提示词
 		result.Prompts = s.generateFallbackVideoPrompts(frameDescriptions)
@@ -1019,35 +1033,126 @@ func (s *VideoGenerationService) processParallelKeyframeVideos(taskID string, re
 	}
 }
 
-// processSequentialKeyframeVideos 串行生成视频
+// processSequentialKeyframeVideos 串行链式生成视频
+// 第1段用首帧图片生成，后续每段用上一段视频的最后一帧作为首帧
 func (s *VideoGenerationService) processSequentialKeyframeVideos(taskID string, req *KeyframeSequenceVideoRequest, frameImages []models.ImageGeneration) {
 	totalVideos := len(req.VideoPrompts)
-	s.taskService.UpdateTaskStatus(taskID, "processing", 0, fmt.Sprintf("开始串行生成 %d 个视频...", totalVideos))
+	s.taskService.UpdateTaskStatus(taskID, "processing", 0, fmt.Sprintf("开始串行链式生成 %d 个视频...", totalVideos))
 
+	dramaID, _ := strconv.ParseUint(fmt.Sprintf("%v", req.DramaID), 10, 32)
 	var videoIDs []uint
 
+	// 初始首帧：用户选定的第一张图片
+	var currentFirstFrameURL string
+	if len(frameImages) > 0 {
+		if frameImages[0].LocalPath != nil && *frameImages[0].LocalPath != "" {
+			currentFirstFrameURL = *frameImages[0].LocalPath
+		} else if frameImages[0].ImageURL != nil {
+			currentFirstFrameURL = *frameImages[0].ImageURL
+		}
+	}
+
 	for i := 0; i < totalVideos; i++ {
-		s.taskService.UpdateTaskStatus(taskID, "processing", i*100/totalVideos, fmt.Sprintf("正在生成第 %d/%d 个视频...", i+1, totalVideos))
+		s.taskService.UpdateTaskStatus(taskID, "processing", i*100/totalVideos,
+			fmt.Sprintf("串行生成第 %d/%d 个视频...", i+1, totalVideos))
 
-		firstFrame := frameImages[i]
-		lastFrame := frameImages[i+1]
-
-		videoID, err := s.generateSingleKeyframeVideo(req, &firstFrame, &lastFrame, req.VideoPrompts[i])
-		if err != nil {
-			s.log.Errorw("Failed to generate keyframe video", "index", i, "error", err)
+		if currentFirstFrameURL == "" {
+			s.log.Errorw("首帧URL为空，跳过", "index", i)
 			continue
 		}
 
-		videoIDs = append(videoIDs, videoID)
+		// 创建视频生成记录（单图模式，只用首帧）
+		prompt := req.VideoPrompts[i]
+		videoGen := &models.VideoGeneration{
+			StoryboardID:  &req.StoryboardID,
+			DramaID:       uint(dramaID),
+			Provider:      req.Provider,
+			Prompt:        prompt,
+			Model:         req.Model,
+			ImageURL:      &currentFirstFrameURL,
+			ReferenceMode: strPtr("single"),
+			Status:        models.VideoStatusPending,
+		}
+		if err := s.db.Create(videoGen).Error; err != nil {
+			s.log.Errorw("创建视频记录失败", "index", i, "error", err)
+			continue
+		}
+
+		// 同步等待视频生成完成
+		localVideoPath, err := s.generateAndAwaitVideo(videoGen.ID)
+		if err != nil {
+			s.log.Errorw("视频生成失败", "index", i, "video_gen_id", videoGen.ID, "error", err)
+			continue
+		}
+
+		videoIDs = append(videoIDs, videoGen.ID)
+
+		// 如果还有下一段，提取当前视频的最后一帧作为下一段的首帧
+		if i < totalVideos-1 && localVideoPath != "" {
+			absPath := localVideoPath
+			if s.localStorage != nil && !strings.HasPrefix(localVideoPath, "/") {
+				absPath = s.localStorage.GetAbsolutePath(localVideoPath)
+			}
+
+			frameDir := filepath.Join(os.TempDir(), "drama-keyframe-frames")
+			os.MkdirAll(frameDir, 0755)
+			framePath := filepath.Join(frameDir, fmt.Sprintf("task_%s_seg%d_last.png", taskID, i))
+
+			if err := s.ffmpeg.ExtractLastFrame(absPath, framePath); err != nil {
+				s.log.Errorw("提取最后一帧失败", "index", i, "error", err)
+				continue
+			}
+
+			currentFirstFrameURL = framePath
+			s.log.Infow("提取最后一帧成功，将作为下一段首帧", "segment", i, "frame_path", framePath)
+		}
 	}
 
 	completedCount := len(videoIDs)
 	s.taskService.UpdateTaskResult(taskID, map[string]interface{}{"video_ids": videoIDs})
 	if completedCount == totalVideos {
-		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("成功生成 %d 个视频", totalVideos))
+		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("成功串行生成 %d 个视频", totalVideos))
 	} else {
-		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("生成了 %d/%d 个视频", completedCount, totalVideos))
+		s.taskService.UpdateTaskStatus(taskID, "completed", 100, fmt.Sprintf("串行生成了 %d/%d 个视频", completedCount, totalVideos))
 	}
+}
+
+// generateAndAwaitVideo 同步等待视频生成完成，返回本地视频路径
+func (s *VideoGenerationService) generateAndAwaitVideo(videoGenID uint) (string, error) {
+	// 启动异步处理
+	go s.ProcessVideoGeneration(videoGenID)
+
+	// 轮询等待完成，最多等待10分钟
+	maxWait := 10 * time.Minute
+	interval := 5 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(interval)
+
+		var videoGen models.VideoGeneration
+		if err := s.db.First(&videoGen, videoGenID).Error; err != nil {
+			return "", fmt.Errorf("查询视频记录失败: %w", err)
+		}
+
+		switch videoGen.Status {
+		case models.VideoStatusCompleted:
+			localPath := ""
+			if videoGen.LocalPath != nil {
+				localPath = *videoGen.LocalPath
+			}
+			return localPath, nil
+		case models.VideoStatusFailed:
+			errMsg := "视频生成失败"
+			if videoGen.ErrorMsg != nil {
+				errMsg = *videoGen.ErrorMsg
+			}
+			return "", fmt.Errorf("%s", errMsg)
+		}
+		// still processing, continue polling
+	}
+
+	return "", fmt.Errorf("视频生成超时 (%.0f 分钟)", maxWait.Minutes())
 }
 
 // generateSingleKeyframeVideo 生成单个关键帧视频

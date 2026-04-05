@@ -883,3 +883,53 @@ func (f *FFmpeg) generateSilence(outputPath string, duration float64) (string, e
 	f.log.Infow("Silence audio generated successfully", "output", outputPath)
 	return outputPath, nil
 }
+
+// ExtractLastFrame 从视频中提取最后一帧作为图片
+func (f *FFmpeg) ExtractLastFrame(videoPath, outputPath string) error {
+	// 确保输出目录存在
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create output directory failed: %w", err)
+	}
+
+	// 使用 -sseof 定位到视频末尾附近，提取最后一帧
+	cmd := exec.Command("ffmpeg",
+		"-sseof", "-0.1",
+		"-i", videoPath,
+		"-vframes", "1",
+		"-y",
+		outputPath,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// fallback: 尝试不带 -sseof，直接用 -update 1 提取
+		cmd2 := exec.Command("ffmpeg",
+			"-i", videoPath,
+			"-vf", "select='eq(n\\,0)'",
+			"-vsync", "vfr",
+			"-frames:v", "1",
+			"-y",
+			outputPath,
+		)
+		// 获取视频信息，用尾部时间戳
+		duration, durErr := f.GetVideoDuration(videoPath)
+		if durErr == nil && duration > 0.5 {
+			seekTime := duration - 0.1
+			cmd2 = exec.Command("ffmpeg",
+				"-ss", fmt.Sprintf("%.2f", seekTime),
+				"-i", videoPath,
+				"-vframes", "1",
+				"-y",
+				outputPath,
+			)
+		}
+		output2, err2 := cmd2.CombinedOutput()
+		if err2 != nil {
+			return fmt.Errorf("ffmpeg extract last frame failed: %w, output: %s, fallback output: %s", err, string(output), string(output2))
+		}
+	}
+
+	f.log.Infow("Last frame extracted successfully", "video", videoPath, "output", outputPath)
+	return nil
+}
