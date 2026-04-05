@@ -489,7 +489,7 @@
                     @click="handleBatchFirstFrameGeneration"
                     size="default"
                   >
-                    {{ batchFirstFrameGenerating ? batchFirstFrameProgress : '一键生成所有首帧图片' }}
+                    {{ batchFirstFrameGenerating ? batchFirstFrameProgress : $t('editor.batchFirstFrame') }}
                   </el-button>
                   <span v-if="batchFirstFrameGenerating" style="font-size: 12px; color: var(--text-muted);">
                     {{ batchFirstFrameMessage }}
@@ -930,10 +930,11 @@
                           :key="img.id"
                           class="reference-item"
                           :class="{
-                            selected: selectedImagesForVideo.includes(img.id),
+                            selected: selectedReferenceMode === 'first_last'
+                              ? (selectedImagesForVideo.includes(img.id) || selectedLastImageForVideo === img.id)
+                              : selectedImagesForVideo.includes(img.id),
                           }"
                           style="position: relative"
-                          @click="handleImageSelect(img.id)"
                         >
                           <el-image
                             :src="getImageUrl(img)"
@@ -967,6 +968,13 @@
                               <ZoomIn />
                             </el-icon>
                           </div>
+                          <!-- 首尾帧模式：显示填充按钮 -->
+                          <div v-if="selectedReferenceMode === 'first_last'" class="first-last-buttons" @click.stop style="position: absolute; bottom: 0; left: 0; right: 0; display: flex; z-index: 10;">
+                            <el-button size="small" :type="selectedImagesForVideo.includes(img.id) ? 'primary' : 'default'" @click="fillAsFirstFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">首帧</el-button>
+                            <el-button size="small" :type="selectedLastImageForVideo === img.id ? 'warning' : 'default'" @click="fillAsLastFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">尾帧</el-button>
+                          </div>
+                          <!-- 非首尾帧模式：点击选择 -->
+                          <div v-else @click="keyframeVideoRef?.handleImageClick(img.id) || handleImageSelect(img.id)" style="position: absolute; inset: 0; cursor: pointer;"></div>
                         </div>
                       </div>
                       <el-empty
@@ -1012,10 +1020,11 @@
                           :key="img.id"
                           class="reference-item"
                           :class="{
-                            selected: selectedImagesForVideo.includes(img.id),
+                            selected: selectedReferenceMode === 'first_last'
+                              ? (selectedImagesForVideo.includes(img.id) || selectedLastImageForVideo === img.id)
+                              : selectedImagesForVideo.includes(img.id),
                           }"
                           style="position: relative"
-                          @click="handleImageSelect(img.id)"
                         >
                           <el-image
                             :src="getImageUrl(img)"
@@ -1049,6 +1058,13 @@
                               <ZoomIn />
                             </el-icon>
                           </div>
+                          <!-- 首尾帧模式：显示填充按钮 -->
+                          <div v-if="selectedReferenceMode === 'first_last'" class="first-last-buttons" @click.stop style="position: absolute; bottom: 0; left: 0; right: 0; display: flex; z-index: 10;">
+                            <el-button size="small" :type="selectedImagesForVideo.includes(img.id) ? 'primary' : 'default'" @click="fillAsFirstFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">首帧</el-button>
+                            <el-button size="small" :type="selectedLastImageForVideo === img.id ? 'warning' : 'default'" @click="fillAsLastFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">尾帧</el-button>
+                          </div>
+                          <!-- 非首尾帧模式：点击选择 -->
+                          <div v-else @click="keyframeVideoRef?.handleImageClick(img.id) || handleImageSelect(img.id)" style="position: absolute; inset: 0; cursor: pointer;"></div>
                         </div>
                       </div>
                       <el-empty
@@ -1094,10 +1110,11 @@
                           :key="img.id"
                           class="reference-item"
                           :class="{
-                            selected: selectedImagesForVideo.includes(img.id),
+                            selected: selectedReferenceMode === 'first_last'
+                              ? (selectedImagesForVideo.includes(img.id) || selectedLastImageForVideo === img.id)
+                              : selectedImagesForVideo.includes(img.id),
                           }"
                           style="position: relative"
-                          @click="handleImageSelect(img.id)"
                         >
                           <el-image
                             :src="getImageUrl(img)"
@@ -1131,6 +1148,13 @@
                               <ZoomIn />
                             </el-icon>
                           </div>
+                          <!-- 首尾帧模式：显示填充按钮 -->
+                          <div v-if="selectedReferenceMode === 'first_last'" class="first-last-buttons" @click.stop style="position: absolute; bottom: 0; left: 0; right: 0; display: flex; z-index: 10;">
+                            <el-button size="small" :type="selectedImagesForVideo.includes(img.id) ? 'primary' : 'default'" @click="fillAsFirstFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">首帧</el-button>
+                            <el-button size="small" :type="selectedLastImageForVideo === img.id ? 'warning' : 'default'" @click="fillAsLastFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">尾帧</el-button>
+                          </div>
+                          <!-- 非首尾帧模式：点击选择 -->
+                          <div v-else @click="keyframeVideoRef?.handleImageClick(img.id) || handleImageSelect(img.id)" style="position: absolute; inset: 0; cursor: pointer;"></div>
                         </div>
                       </div>
                       <el-empty
@@ -1176,10 +1200,11 @@
                           :key="img.id"
                           class="reference-item"
                           :class="{
-                            selected: selectedImagesForVideo.includes(img.id),
+                            selected: selectedReferenceMode === 'first_last'
+                              ? (selectedImagesForVideo.includes(img.id) || selectedLastImageForVideo === img.id)
+                              : selectedImagesForVideo.includes(img.id),
                           }"
                           style="position: relative"
-                          @click="handleImageSelect(img.id)"
                         >
                           <el-image
                             :src="getImageUrl(img)"
@@ -1213,6 +1238,13 @@
                               <ZoomIn />
                             </el-icon>
                           </div>
+                          <!-- 首尾帧模式：显示填充按钮 -->
+                          <div v-if="selectedReferenceMode === 'first_last'" class="first-last-buttons" @click.stop style="position: absolute; bottom: 0; left: 0; right: 0; display: flex; z-index: 10;">
+                            <el-button size="small" :type="selectedImagesForVideo.includes(img.id) ? 'primary' : 'default'" @click="fillAsFirstFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">首帧</el-button>
+                            <el-button size="small" :type="selectedLastImageForVideo === img.id ? 'warning' : 'default'" @click="fillAsLastFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">尾帧</el-button>
+                          </div>
+                          <!-- 非首尾帧模式：点击选择 -->
+                          <div v-else @click="keyframeVideoRef?.handleImageClick(img.id) || handleImageSelect(img.id)" style="position: absolute; inset: 0; cursor: pointer;"></div>
                         </div>
                       </div>
                       <el-empty
@@ -1258,10 +1290,11 @@
                           :key="img.id"
                           class="reference-item"
                           :class="{
-                            selected: selectedImagesForVideo.includes(img.id),
+                            selected: selectedReferenceMode === 'first_last'
+                              ? (selectedImagesForVideo.includes(img.id) || selectedLastImageForVideo === img.id)
+                              : selectedImagesForVideo.includes(img.id),
                           }"
                           style="position: relative"
-                          @click="handleKeyframeImageClick(img.id) || handleImageSelect(img.id)"
                         >
                           <el-image
                             :src="getImageUrl(img)"
@@ -1295,6 +1328,13 @@
                               <ZoomIn />
                             </el-icon>
                           </div>
+                          <!-- 首尾帧模式：显示填充按钮 -->
+                          <div v-if="selectedReferenceMode === 'first_last'" class="first-last-buttons" @click.stop style="position: absolute; bottom: 0; left: 0; right: 0; display: flex; z-index: 10;">
+                            <el-button size="small" :type="selectedImagesForVideo.includes(img.id) ? 'primary' : 'default'" @click="fillAsFirstFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">首帧</el-button>
+                            <el-button size="small" :type="selectedLastImageForVideo === img.id ? 'warning' : 'default'" @click="fillAsLastFrame(img.id)" style="flex: 1; padding: 2px 0; font-size: 11px; border-radius: 0;">尾帧</el-button>
+                          </div>
+                          <!-- 非首尾帧模式：点击选择 -->
+                          <div v-else @click="keyframeVideoRef?.handleImageClick(img.id) || handleImageSelect(img.id)" style="position: absolute; inset: 0; cursor: pointer;"></div>
                         </div>
                       </div>
                       <el-empty
@@ -1313,139 +1353,16 @@
                   </div>
                 </div>
 
-                <!-- 关键帧序列视频生成区域 -->
-                <div
-                  v-if="selectedVideoFrameType === 'action' && allActionImages.length >= 2"
-                  class="keyframe-video-section"
-                  style="
-                    margin-top: 16px;
-                    padding: 16px;
-                    background: #f5f7f33;
-                    border-radius: 8px;
-                  "
-                >
-                  <div class="section-title" style="font-weight: bold; margin-bottom: 12px; display: flex; align-items: center; gap: 12px">
-                    <span>关键帧序列视频生成</span>
-                    <el-tag type="info" size="small">{{ actionSequenceImages.length }}帧 / {{ actionSequenceImages.length - 1 }}段视频</el-tag>
-                    <el-radio-group v-model="keyframeFrameCount" size="small" style="margin-left: auto">
-                      <el-radio-button :value="4">4帧</el-radio-button>
-                      <el-radio-button :value="6">6帧</el-radio-button>
-                      <el-radio-button :value="9">9帧</el-radio-button>
-                      <el-radio-button :value="0">全部({{ allActionImages.length }})</el-radio-button>
-                    </el-radio-group>
-                  </div>
-
-                  <!-- 生成方式选择 -->
-                  <div class="generation-mode-selector" style="margin-bottom: 12px">
-                    <span style="margin-right: 12px">生成方式:</span>
-                    <el-radio-group v-model="keyframeGenerationMode" size="small">
-                      <el-radio-button value="parallel">并行生成</el-radio-button>
-                      <el-radio-button value="sequential">串行生成</el-radio-button>
-                    </el-radio-group>
-                  </div>
-
-                  <!-- 帧插槽 -->
-                  <div class="keyframe-frame-slots" style="margin-bottom: 16px">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px">
-                      <span style="font-size: 13px; color: #606266; font-weight: 500">帧分配</span>
-                      <el-tag type="info" size="small">
-                        {{ keyframeFrameSlots.filter(id => id !== null).length }}/{{ keyframeFrameSlots.length }} 已分配
-                      </el-tag>
-                      <el-button size="small" text @click="autoFillKeyframeSlots" style="margin-left: auto">
-                        自动填充
-                      </el-button>
-                    </div>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center">
-                      <template v-for="(slotImageId, index) in keyframeFrameSlots" :key="index">
-                        <div
-                          class="frame-slot"
-                          :class="{ active: activeKeyframeSlot === index }"
-                          @click="activeKeyframeSlot = index"
-                        >
-                          <div class="frame-slot-label">帧{{ index + 1 }}</div>
-                          <div class="frame-slot-image" v-if="getKeyframeSlotImage(index)">
-                            <img
-                              :src="getImageUrl(getKeyframeSlotImage(index))"
-                              style="width: 100%; height: 100%; object-fit: cover"
-                            />
-                            <div class="frame-slot-remove" @click.stop="clearKeyframeSlot(index)">
-                              <el-icon :size="12" color="#fff"><Close /></el-icon>
-                            </div>
-                          </div>
-                          <div v-else class="frame-slot-placeholder">
-                            <el-icon :size="18" color="#c0c4cc"><Plus /></el-icon>
-                          </div>
-                        </div>
-                        <el-icon v-if="index < keyframeFrameSlots.length - 1" :size="14" color="#909399" style="flex-shrink: 0"><Right /></el-icon>
-                      </template>
-                    </div>
-                  </div>
-
-                  <!-- 视频提示词列表 -->
-                  <div class="video-prompts-list" style="max-height: 300px; overflow-y: auto">
-                    <div
-                      v-for="(prompt, index) in keyframeVideoPrompts"
-                      :key="index"
-                      class="prompt-item"
-                      style="
-                        margin-bottom: 12px;
-                        padding: 12px;
-                        background: #fff;
-                        border-radius: 4px;
-                      "
-                    >
-                      <div class="prompt-header" style="display: flex; align-items: center; margin-bottom: 8px">
-                        <el-tag size="small" type="primary">帧{{ index + 1 }} → 帧{{ index + 2 }}</el-tag>
-                        <span style="margin-left: 8px; font-size: 12px; color: #666">
-                          视频提示词
-                        </span>
-                      </div>
-                      <el-input
-                        v-model="keyframeVideoPrompts[index]"
-                        type="textarea"
-                        :rows="2"
-                        placeholder="描述从帧{{ index + 1 }}到帧{{ index + 2 }}的动作过渡..."
-                      />
-                    </div>
-                  </div>
-
-                  <!-- 操作按钮 -->
-                  <div class="action-buttons" style="margin-top: 12px; display: flex; gap: 8px">
-                    <el-button
-                      @click="generateKeyframeVideoPrompts"
-                      :loading="generatingKeyframePrompts"
-                      :disabled="generatingKeyframeVideos"
-                    >
-                      <el-icon><MagicStick /></el-icon>
-                      生成视频提示词
-                    </el-button>
-                    <el-button
-                      type="primary"
-                      @click="startKeyframeVideoGeneration"
-                      :loading="generatingKeyframeVideos"
-                      :disabled="generatingKeyframePrompts || keyframeVideoPrompts.length === 0"
-                    >
-                      <el-icon><VideoCamera /></el-icon>
-                      生成视频 ({{ keyframeVideoPrompts.length }}段)
-                    </el-button>
-                  </div>
-
-                  <!-- 生成进度 -->
-                  <div
-                    v-if="generatingKeyframeVideos && keyframeVideoTaskId"
-                    class="progress-info"
-                    style="
-                      margin-top: 12px;
-                      padding: 12px;
-                      background: #e6f7ff;
-                      border-radius: 4px;
-                      text-align: center;
-                    "
-                  >
-                    <el-progress :percentage="keyframeVideoProgress" :status="keyframeVideoProgress === 100 ? 'success' : ''" />
-                    <span style="margin-top: 8px">{{ keyframeVideoStatus }}</span>
-                  </div>
-                </div>
+                <!-- 关键帧序列视频生成 -->
+                <KeyframeSequenceVideo
+                  v-if="allCompletedImages.length >= 2"
+                  ref="keyframeVideoRef"
+                  :storyboard-id="currentStoryboard.id"
+                  :drama-id="dramaId"
+                  :available-images="allCompletedImages"
+                  :selected-video-model="selectedVideoModel"
+                  @videos-generated="loadStoryboardVideos(currentStoryboard.id)"
+                />
 
                 <!-- 参考图片设置 -->
                 <div
@@ -2283,6 +2200,7 @@ import type { AIServiceConfig } from "@/types/ai";
 import type { Asset } from "@/types/asset";
 import type { VideoMerge } from "@/api/videoMerge";
 import VideoTimelineEditor from "@/components/editor/VideoTimelineEditor.vue";
+import KeyframeSequenceVideo from "@/components/editor/KeyframeSequenceVideo.vue";
 import GridImageEditor from "@/components/editor/GridImageEditor.vue";
 import type { Drama, Episode, Storyboard } from "@/types/drama";
 import { AppHeader, ImageCropDialog } from "@/components/common";
@@ -2359,15 +2277,6 @@ const actionFramePrompts = ref<{ prompt: string; description: string }[]>([]);
 const actionGridType = ref<4 | 6 | 9>(9); // 宫格类型：4/6/9
 const actionGridTypeLocked = ref(false); // 提取提示词后锁定宫格类型
 
-// 关键帧序列视频生成相关状态
-const keyframeGenerationMode = ref<"parallel" | "sequential">("parallel");
-const keyframeVideoPrompts = ref<string[]>([]);
-const generatingKeyframePrompts = ref(false);
-const generatingKeyframeVideos = ref(false);
-const keyframeVideoTaskId = ref<string | null>(null);
-const keyframeVideoProgress = ref(0);
-const keyframeVideoStatus = ref("");
-
 // 初始化动作序列帧提示词数组（根据宫格类型）
 const initActionFramePrompts = (count?: number) => {
   const targetCount = count || actionGridType.value;
@@ -2403,90 +2312,14 @@ const loadingVideos = ref(false);
 const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
   null,
 );
+const keyframeVideoRef = ref<InstanceType<typeof KeyframeSequenceVideo> | null>(null);
 const videoReferenceImages = ref<ImageGeneration[]>([]);
+const allCompletedImages = computed(() =>
+  videoReferenceImages.value.filter((img) => img.status === "completed" && img.image_url),
+);
 const selectedVideoModel = ref<string>("");
 const selectedReferenceMode = ref<string>(""); // 参考图模式：single, first_last, multiple, none
 
-// 动作序列图片（用于关键帧序列视频生成）
-const keyframeFrameCount = ref<number>(0); // 0 表示全部
-const allActionImages = computed(() => {
-  return videoReferenceImages.value
-    .filter((i) => i.status === "completed" && i.image_url && i.frame_type === "action")
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-});
-const actionSequenceImages = computed(() => {
-  if (keyframeFrameCount.value === 0) return allActionImages.value;
-  return allActionImages.value.slice(0, keyframeFrameCount.value);
-});
-
-// 监听宫格类型变化，同步更新关键帧帧数选择
-watch(actionGridType, (newType) => {
-  keyframeFrameCount.value = newType;
-}, { immediate: true });
-
-// 关键帧帧插槽：用户手动分配每帧使用的图片
-const keyframeFrameSlots = ref<(number | null)[]>([]);
-const activeKeyframeSlot = ref<number>(-1);
-
-// 自动填充帧插槽
-const autoFillKeyframeSlots = () => {
-  const count = keyframeFrameCount.value === 0
-    ? allActionImages.value.length
-    : keyframeFrameCount.value;
-  keyframeFrameSlots.value = actionSequenceImages.value
-    .slice(0, count)
-    .map((img) => img.id);
-  activeKeyframeSlot.value = -1;
-};
-
-// 监听帧数和图片变化，自动填充
-watch([keyframeFrameCount, allActionImages], () => {
-  const count = keyframeFrameCount.value === 0
-    ? allActionImages.value.length
-    : keyframeFrameCount.value;
-  const newSlots: (number | null)[] = [];
-  for (let i = 0; i < count; i++) {
-    if (i < keyframeFrameSlots.value.length && keyframeFrameSlots.value[i] !== null) {
-      const existingId = keyframeFrameSlots.value[i];
-      if (allActionImages.value.some((img) => img.id === existingId)) {
-        newSlots.push(existingId);
-        continue;
-      }
-    }
-    if (i < actionSequenceImages.value.length) {
-      newSlots.push(actionSequenceImages.value[i].id);
-    } else {
-      newSlots.push(null);
-    }
-  }
-  keyframeFrameSlots.value = newSlots;
-}, { immediate: true });
-
-// 获取插槽中的图片对象
-const getKeyframeSlotImage = (index: number) => {
-  const imageId = keyframeFrameSlots.value[index];
-  if (imageId === null || imageId === undefined) return null;
-  return allActionImages.value.find((img) => img.id === imageId) || null;
-};
-
-// 清空指定插槽
-const clearKeyframeSlot = (index: number) => {
-  keyframeFrameSlots.value[index] = null;
-  activeKeyframeSlot.value = -1;
-};
-
-// 点击图片分配到激活的帧插槽
-const handleKeyframeImageClick = (imageId: number): boolean => {
-  if (activeKeyframeSlot.value < 0) return false;
-  const existingSlotIndex = keyframeFrameSlots.value.indexOf(imageId);
-  const currentSlotValue = keyframeFrameSlots.value[activeKeyframeSlot.value];
-  if (existingSlotIndex >= 0 && existingSlotIndex !== activeKeyframeSlot.value) {
-    keyframeFrameSlots.value[existingSlotIndex] = currentSlotValue;
-  }
-  keyframeFrameSlots.value[activeKeyframeSlot.value] = imageId;
-  activeKeyframeSlot.value = -1;
-  return true;
-};
 const previewImageUrl = ref<string>(""); // 预览大图的URL
 const videoModelCapabilities = ref<VideoModelCapability[]>([]);
 let videoPollingTimer: any = null;
@@ -2997,23 +2830,11 @@ watch(selectedReferenceMode, () => {
   selectedLastImageForVideo.value = null;
 });
 
-// 监听视频帧类型切换，自动设置合适的参考图模式
-watch(selectedVideoFrameType, (newType) => {
-  // 清空已选图片
-  selectedImagesForVideo.value = [];
-  selectedLastImageForVideo.value = null;
-
-  // 根据帧类型自动切换参考图模式
-  const capability = currentModelCapability.value;
-  if (!capability) return;
-
-  // action/key/first/last/panel 都默认使用 single 模式
-  // first_last 模式需要用户手动选择后再分别选首尾帧
-  if (
-    capability.supportSingleImage &&
-    availableReferenceModes.value.some((m) => m.value === "single")
-  ) {
-    selectedReferenceMode.value = "single";
+// 监听视频帧类型切换，仅在非首尾帧模式下清空已选图片
+watch(selectedVideoFrameType, () => {
+  if (selectedReferenceMode.value !== 'first_last') {
+    selectedImagesForVideo.value = [];
+    selectedLastImageForVideo.value = null;
   }
 });
 
@@ -3308,43 +3129,51 @@ const loadStoryboardImages = async (
 };
 
 // 一键批量生成所有首帧图片
+let batchFirstFrameTimer: ReturnType<typeof setInterval> | null = null;
+
 const handleBatchFirstFrameGeneration = async () => {
   if (!episodeId.value) {
-    ElMessage.error('剧集信息不存在');
+    ElMessage.error($t('editor.noShotSelected'));
     return;
   }
 
   try {
     await ElMessageBox.confirm(
-      '将为该剧集所有尚未生成首帧图片的镜头自动提取提示词并生成图片，是否继续？',
-      '一键生成所有首帧图片',
-      { type: 'info', confirmButtonText: '开始生成', cancelButtonText: '取消' }
+      $t('editor.batchFirstFrameConfirm'),
+      $t('editor.batchFirstFrame'),
+      { type: 'info', confirmButtonText: $t('common.confirm'), cancelButtonText: $t('common.cancel') }
     );
   } catch {
     return;
   }
 
   batchFirstFrameGenerating.value = true;
-  batchFirstFrameProgress.value = '提交任务中...';
+  batchFirstFrameProgress.value = $t('editor.batchFirstFrameSubmit');
   batchFirstFrameMessage.value = '';
 
   try {
-    const result = await batchGenerateFirstFrameImages(
-      Number(episodeId.value)
-    );
-    await pollBatchFirstFrameTask(result.task_id);
+    const result = await batchGenerateFirstFrameImages(Number(episodeId.value));
+    startBatchFirstFramePolling(result.task_id);
   } catch (error: any) {
-    ElMessage.error(error.message || '批量生成任务启动失败');
+    ElMessage.error(error.message || $t('editor.batchFirstFrameFailed'));
     batchFirstFrameGenerating.value = false;
   }
 };
 
-const pollBatchFirstFrameTask = async (taskId: string) => {
-  const maxAttempts = 1200; // 最多40分钟（2秒间隔）
-  const interval = 2000;
+const startBatchFirstFramePolling = (taskId: string) => {
+  if (batchFirstFrameTimer) clearInterval(batchFirstFrameTimer);
 
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(resolve => setTimeout(resolve, interval));
+  const maxDuration = 40 * 60 * 1000; // 最多40分钟
+  const startTime = Date.now();
+
+  batchFirstFrameTimer = setInterval(async () => {
+    if (Date.now() - startTime > maxDuration) {
+      clearInterval(batchFirstFrameTimer!);
+      batchFirstFrameTimer = null;
+      batchFirstFrameGenerating.value = false;
+      ElMessage.warning($t('editor.batchFirstFrameTimeout'));
+      return;
+    }
 
     try {
       const task = await taskAPI.getStatus(taskId);
@@ -3355,25 +3184,23 @@ const pollBatchFirstFrameTask = async (taskId: string) => {
       }
 
       if (task.status === 'completed') {
+        clearInterval(batchFirstFrameTimer!);
+        batchFirstFrameTimer = null;
         batchFirstFrameGenerating.value = false;
-        ElMessage.success('所有首帧图片生成完成！');
-        // 重新加载当前镜头的图片
+        ElMessage.success($t('editor.batchFirstFrameSuccess'));
         if (currentStoryboard.value) {
           await loadStoryboardImages(currentStoryboard.value.id, selectedFrameType.value);
         }
-        return;
       } else if (task.status === 'failed') {
+        clearInterval(batchFirstFrameTimer!);
+        batchFirstFrameTimer = null;
         batchFirstFrameGenerating.value = false;
-        ElMessage.error(`批量生成失败: ${task.error || '未知错误'}`);
-        return;
+        ElMessage.error(`${$t('editor.batchFirstFrameFailed')}: ${task.error || ''}`);
       }
     } catch (error) {
       console.error('Polling batch first-frame task failed:', error);
     }
-  }
-
-  batchFirstFrameGenerating.value = false;
-  ElMessage.warning('批量生成超时，请刷新页面查看结果');
+  }, 2000);
 };
 
 // 启动状态轮询
@@ -3659,17 +3486,6 @@ const handleImageSelect = (imageId: number) => {
   );
   if (!clickedImage) return;
 
-  // 如果点击的是 action 类型图片，自动切换到 single 模式
-  if (
-    clickedImage.frame_type === "action" &&
-    selectedReferenceMode.value !== "single" &&
-    capability.supportSingleImage
-  ) {
-    selectedReferenceMode.value = "single";
-    selectedImagesForVideo.value = [];
-    selectedLastImageForVideo.value = null;
-  }
-
   // 根据选择的参考图模式处理
   switch (selectedReferenceMode.value) {
     case "single":
@@ -3678,23 +3494,8 @@ const handleImageSelect = (imageId: number) => {
       break;
 
     case "first_last":
-      // 首尾帧模式：根据图片类型分别处理
-      const frameType = clickedImage.frame_type;
-
-      if (
-        frameType === "first" ||
-        frameType === "panel" ||
-        frameType === "key"
-      ) {
-        // 首帧：直接替换
-        selectedImagesForVideo.value = [imageId];
-      } else if (frameType === "last") {
-        // 尾帧：设置到单独的变量
-        selectedLastImageForVideo.value = imageId;
-      } else {
-        ElMessage.warning("首尾帧模式下，请选择首帧或尾帧类型的图片");
-      }
-      break;
+      // 首尾帧模式下直接点击不处理，需要通过按钮指定首帧或尾帧
+      return;
 
     case "multiple":
       // 多图模式：检查是否超出最大数量
@@ -3708,6 +3509,16 @@ const handleImageSelect = (imageId: number) => {
     default:
       ElMessage.warning("未知的参考图模式");
   }
+};
+
+// 首尾帧模式：将图片填充为首帧
+const fillAsFirstFrame = (imageId: number) => {
+  selectedImagesForVideo.value = [imageId];
+};
+
+// 首尾帧模式：将图片填充为尾帧
+const fillAsLastFrame = (imageId: number) => {
+  selectedLastImageForVideo.value = imageId;
 };
 
 // 预览图片（使用已导入的 getImageUrl 工具函数来获取正确的图片URL）
@@ -4265,110 +4076,6 @@ const handleGenerateActionSequenceImages = async () => {
   }
 };
 
-// 生成关键帧视频提示词
-const generateKeyframeVideoPrompts = async () => {
-  if (!currentStoryboard.value) {
-    ElMessage.warning("请先选择镜头");
-    return;
-  }
-
-  // 使用帧插槽中的图片ID
-  const frameImageIds = keyframeFrameSlots.value.filter((id) => id !== null) as number[];
-
-  if (frameImageIds.length < 2) {
-    ElMessage.warning("请至少分配2帧图片到帧插槽中");
-    return;
-  }
-
-  generatingKeyframePrompts.value = true;
-
-  try {
-    const result = await videoAPI.generateKeyframeVideoPrompts({
-      storyboard_id: currentStoryboard.value.id,
-      frame_image_ids: frameImageIds,
-    });
-
-    keyframeVideoPrompts.value = result.prompts || [];
-    ElMessage.success("视频提示词生成成功");
-  } catch (error: any) {
-    ElMessage.error(error.message || "生成视频提示词失败");
-  } finally {
-    generatingKeyframePrompts.value = false;
-  }
-};
-
-// 生成关键帧序列视频
-const startKeyframeVideoGeneration = async () => {
-  if (!currentStoryboard.value) {
-    ElMessage.warning("请先选择镜头");
-    return;
-  }
-  
-  if (keyframeVideoPrompts.value.length === 0) {
-    ElMessage.warning("请先生成视频提示词");
-    return;
-  }
-
-  generatingKeyframeVideos.value = true;
-  keyframeVideoProgress.value = 0;
-  keyframeVideoStatus.value = "正在启动...";
-
-  try {
-    const frameImageIds = keyframeFrameSlots.value.filter((id) => id !== null) as number[];
-    if (frameImageIds.length < 2) {
-      ElMessage.warning("请至少分配2帧图片到帧插槽中");
-      generatingKeyframeVideos.value = false;
-      return;
-    }
-    const result = await videoAPI.generateKeyframeSequenceVideos({
-      storyboard_id: currentStoryboard.value.id,
-      drama_id: String(dramaId),
-      frame_image_ids: frameImageIds,
-      video_prompts: keyframeVideoPrompts.value,
-      generation_mode: keyframeGenerationMode.value,
-      model: selectedVideoModel.value || undefined,
-    });
-  
-    const taskId = result.task_id;
-    keyframeVideoTaskId.value = taskId;
-    keyframeVideoStatus.value = "视频生成中...";
-  
-    // 轮询任务状态
-    const pollInterval = setInterval(async () => {
-      try {
-        const task = await taskAPI.getStatus(taskId);
-        if (task.status === "completed") {
-          clearInterval(pollInterval);
-          generatingKeyframeVideos.value = false;
-          keyframeVideoProgress.value = 100;
-          keyframeVideoStatus.value = "生成完成";
-          ElMessage.success("关键帧序列视频生成完成");
-          // 刷新视频列表
-          await loadStoryboardVideos(currentStoryboard.value.id);
-        } else if (task.status === "failed") {
-          clearInterval(pollInterval);
-          generatingKeyframeVideos.value = false;
-          keyframeVideoStatus.value = "";
-          ElMessage.error(task.error || "生成失败");
-        } else {
-          // 更新进度
-          if (task.message) {
-            keyframeVideoStatus.value = task.message;
-          }
-          if (task.progress > 0) {
-            keyframeVideoProgress.value = task.progress;
-          }
-        }
-      } catch (e) {
-        console.error("轮询任务状态失败:", e);
-      }
-    }, 3000);
-  } catch (error: any) {
-    generatingKeyframeVideos.value = false;
-    keyframeVideoStatus.value = "";
-    ElMessage.error(error.message || "启动视频生成失败");
-  }
-};
 const uploadImage = () => {
   if (!currentStoryboard.value) {
     ElMessage.warning("请先选择镜头");

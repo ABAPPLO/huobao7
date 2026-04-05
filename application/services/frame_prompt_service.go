@@ -843,9 +843,6 @@ func (s *FramePromptService) composeGridImage(imagePaths []string, cols, rows in
 	// 根据比例计算单元格尺寸，保持与首帧等帧类型一致
 	cellW := 1024
 	cellH := 576 // 默认 16:9
-	if s.config != nil {
-		cellW, cellH = parseAspectRatio("16:9", 1024)
-	}
 	gap := 6
 	totalW := cellW*cols + gap*(cols-1)
 	totalH := cellH*rows + gap*(rows-1)
@@ -1002,26 +999,34 @@ func (s *FramePromptService) processBatchFirstFrameImages(taskID string, episode
 	failed := 0
 	var results []map[string]interface{}
 
+	// 批量预查询已有完成首帧图片的镜头，避免逐个查询
+	var completedIDs []uint
+	storyboardIDs := make([]uint, len(storyboards))
+	for i, sb := range storyboards {
+		storyboardIDs[i] = sb.ID
+	}
+	if len(storyboardIDs) > 0 {
+		s.db.Model(&models.ImageGeneration{}).
+			Where("storyboard_id IN ? AND frame_type = ? AND status = ?",
+				storyboardIDs, "first", models.ImageStatusCompleted).
+			Pluck("storyboard_id", &completedIDs)
+	}
+	completedSet := make(map[uint]bool, len(completedIDs))
+	for _, id := range completedIDs {
+		completedSet[id] = true
+	}
+
 	for i, storyboard := range storyboards {
 		progress := (i + 1) * 100 / (total + 1)
 		s.taskService.UpdateTaskStatus(taskID, "processing", progress,
 			fmt.Sprintf("正在处理第 %d/%d 个镜头...", i+1, total))
 
-		// 检查是否已有完成的首帧图片
-		var existingCount int64
-		s.db.Model(&models.ImageGeneration{}).
-			Where("storyboard_id = ? AND frame_type = ? AND status = ?",
-				storyboard.ID, "first", models.ImageStatusCompleted).
-			Count(&existingCount)
-		if existingCount > 0 {
+		// 检查是否已有完成的首帧图片（使用预查询结果）
+		if completedSet[storyboard.ID] {
 			skipped++
 			s.log.Infow("Skipping storyboard with existing first-frame image",
 				"storyboard_id", storyboard.ID, "storyboard_number", storyboard.StoryboardNumber)
-			results = append(results, map[string]interface{}{
-				"storyboard_id":     storyboard.ID,
-				"storyboard_number": storyboard.StoryboardNumber,
-				"status":            "skipped",
-			})
+			results = append(results, s.newBatchResult(storyboard.ID, storyboard.StoryboardNumber, "skipped", ""))
 			continue
 		}
 
@@ -1043,12 +1048,7 @@ func (s *FramePromptService) processBatchFirstFrameImages(taskID string, episode
 			failed++
 			s.log.Warnw("Failed to generate first-frame prompt",
 				"storyboard_id", storyboard.ID, "storyboard_number", storyboard.StoryboardNumber)
-			results = append(results, map[string]interface{}{
-				"storyboard_id":     storyboard.ID,
-				"storyboard_number": storyboard.StoryboardNumber,
-				"status":            "failed",
-				"error":             "提示词生成失败",
-			})
+			results = append(results, s.newBatchResult(storyboard.ID, storyboard.StoryboardNumber, "failed", "提示词生成失败"))
 			continue
 		}
 
@@ -1088,12 +1088,7 @@ func (s *FramePromptService) processBatchFirstFrameImages(taskID string, episode
 			failed++
 			s.log.Errorw("Failed to generate first-frame image",
 				"storyboard_id", storyboard.ID, "error", err)
-			results = append(results, map[string]interface{}{
-				"storyboard_id":     storyboard.ID,
-				"storyboard_number": storyboard.StoryboardNumber,
-				"status":            "failed",
-				"error":             err.Error(),
-			})
+			results = append(results, s.newBatchResult(storyboard.ID, storyboard.StoryboardNumber, "failed", err.Error()))
 			continue
 		}
 
@@ -1103,12 +1098,7 @@ func (s *FramePromptService) processBatchFirstFrameImages(taskID string, episode
 			failed++
 			s.log.Errorw("First-frame image generation failed or timed out",
 				"storyboard_id", storyboard.ID, "error", waitErr)
-			results = append(results, map[string]interface{}{
-				"storyboard_id":     storyboard.ID,
-				"storyboard_number": storyboard.StoryboardNumber,
-				"status":            "failed",
-				"error":             waitErr.Error(),
-			})
+			results = append(results, s.newBatchResult(storyboard.ID, storyboard.StoryboardNumber, "failed", waitErr.Error()))
 			continue
 		}
 
@@ -1163,6 +1153,19 @@ func parseAspectRatio(ratio string, baseWidth int) (int, int) {
 		}
 	}
 	return baseWidth, baseWidth * 9 / 16 // 默认 16:9
+}
+
+// newBatchResult 构建批量生成的单个镜头结果记录
+func (s *FramePromptService) newBatchResult(storyboardID uint, storyboardNumber int, status string, errMsg string) map[string]interface{} {
+	result := map[string]interface{}{
+		"storyboard_id":     storyboardID,
+		"storyboard_number": storyboardNumber,
+		"status":            status,
+	}
+	if errMsg != "" {
+		result["error"] = errMsg
+	}
+	return result
 }
 
 func strPtr(s string) *string       { return &s }
