@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -839,10 +840,15 @@ func (s *FramePromptService) composeGridImage(imagePaths []string, cols, rows in
 		return nil, fmt.Errorf("没有图片可拼合")
 	}
 
-	cellSize := 1024
+	// 根据比例计算单元格尺寸，保持与首帧等帧类型一致
+	cellW := 1024
+	cellH := 576 // 默认 16:9
+	if s.config != nil {
+		cellW, cellH = parseAspectRatio("16:9", 1024)
+	}
 	gap := 6
-	totalW := cellSize*cols + gap*(cols-1)
-	totalH := cellSize*rows + gap*(rows-1)
+	totalW := cellW*cols + gap*(cols-1)
+	totalH := cellH*rows + gap*(rows-1)
 
 	canvas := image.NewRGBA(image.Rect(0, 0, totalW, totalH))
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{image.White}, image.Point{}, draw.Src)
@@ -856,12 +862,12 @@ func (s *FramePromptService) composeGridImage(imagePaths []string, cols, rows in
 			s.log.Warnw("Failed to load image for grid", "path", imgPath, "error", err)
 			continue
 		}
-		resized := s.resizeImage(img, cellSize, cellSize)
+		resized := s.resizeImage(img, cellW, cellH)
 		col := i % cols
 		row := i / cols
-		x := col * (cellSize + gap)
-		y := row * (cellSize + gap)
-		draw.Draw(canvas, image.Rect(x, y, x+cellSize, y+cellSize), resized, image.Point{}, draw.Over)
+		x := col * (cellW + gap)
+		y := row * (cellH + gap)
+		draw.Draw(canvas, image.Rect(x, y, x+cellW, y+cellH), resized, image.Point{}, draw.Src)
 	}
 
 	if s.localStorage == nil {
@@ -1144,6 +1150,19 @@ func (s *FramePromptService) processBatchFirstFrameImages(taskID string, episode
 		"processed", processed,
 		"skipped", skipped,
 		"failed", failed)
+}
+
+// parseAspectRatio 解析长宽比字符串（如 "16:9"），返回基于基准宽度的宽高像素值
+func parseAspectRatio(ratio string, baseWidth int) (int, int) {
+	parts := strings.Split(ratio, ":")
+	if len(parts) == 2 {
+		w, err1 := strconv.Atoi(parts[0])
+		h, err2 := strconv.Atoi(parts[1])
+		if err1 == nil && err2 == nil && w > 0 && h > 0 {
+			return baseWidth, baseWidth * h / w
+		}
+	}
+	return baseWidth, baseWidth * 9 / 16 // 默认 16:9
 }
 
 func strPtr(s string) *string       { return &s }

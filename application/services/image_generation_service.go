@@ -174,10 +174,8 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 		}
 	}
 
-	// 动作序列（九宫格）使用 1:1 正方形比例
-	if imageGen.FrameType != nil && *imageGen.FrameType == "action" {
-		imageRatio = "1:1"
-	}
+	// 动作序列（九宫格）使用与首帧等一致的比例（由 Drama 设置决定）
+
 
 	s.db.Model(&imageGen).Update("status", models.ImageStatusProcessing)
 
