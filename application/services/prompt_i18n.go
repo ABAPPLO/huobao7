@@ -1292,3 +1292,70 @@ Generate %d prompts total.`, frameCount-1, context, frameList, frameCount-1)
 
 共生成 %d 个提示词。`, frameCount-1, context, frameList, frameCount-1)
 }
+
+// GetKeyframeParallelVideoPrompts 生成关键帧并行模式的视频提示词（每帧一个提示词，含时长）
+func (p *PromptI18n) GetKeyframeParallelVideoPrompts(frameDescriptions []string, context string) string {
+	frameCount := len(frameDescriptions)
+	if frameCount == 0 {
+		return ""
+	}
+
+	frameList := ""
+	for i, frame := range frameDescriptions {
+		if p.IsEnglish() {
+			frameList += fmt.Sprintf("- Frame %d: %s\n", i+1, frame)
+		} else {
+			frameList += fmt.Sprintf("- 第%d帧：%s\n", i+1, frame)
+		}
+	}
+
+	if p.IsEnglish() {
+		return fmt.Sprintf(`You are an expert in video action choreography. Generate %d video prompts for a keyframe sequence.
+
+**Context:**
+%s
+
+**Frame Descriptions:**
+%s
+
+**Task:**
+For EACH frame image, generate a video prompt describing the action/state that should be animated from this frame.
+
+**Rules:**
+1. Each prompt describes the action, movement, or state change for that specific frame
+2. Use clear, descriptive language for AI video generation
+3. Focus on body movement, camera motion, and action progression
+4. Keep prompts concise but detailed (50-100 words each)
+5. Suggest an appropriate video duration for each segment (1-10 seconds)
+6. Duration should match the complexity of the action (simple actions: 2-4s, complex actions: 5-10s)
+
+**Output Format - Return ONLY this JSON:**
+{"prompts":["Video prompt for frame 1...","Video prompt for frame 2...","..."],"durations":[3,5,8,...]}
+
+Generate %d prompts and %d durations total.`, frameCount, context, frameList, frameCount, frameCount)
+	}
+
+	return fmt.Sprintf(`你是一位视频动作编排专家。为一个关键帧序列生成 %d 个视频提示词。
+
+**场景上下文：**
+%s
+
+**各帧描述：**
+%s
+
+**任务：**
+为每一帧图片生成一个独立的视频提示词，描述该帧画面应该展现的动作或状态。
+
+**规则：**
+1. 每个提示词描述该帧画面的动作、运动或状态变化
+2. 使用清晰、描述性的语言，适合AI视频生成
+3. 重点关注身体动作、镜头运动和动作表现
+4. 提示词简洁但详细（每个50-100字）
+5. 为每个片段建议合适的视频时长（1-10秒）
+6. 时长应匹配动作复杂度（简单动作2-4秒，复杂动作5-10秒）
+
+**输出格式 - 只返回这个JSON：**
+{"prompts":["帧1的视频提示词...","帧2的视频提示词...","..."],"durations":[3,5,8,...]}
+
+共生成 %d 个提示词和 %d 个时长。`, frameCount, context, frameList, frameCount, frameCount)
+}

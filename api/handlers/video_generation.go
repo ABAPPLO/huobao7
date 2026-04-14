@@ -152,22 +152,27 @@ func (h *VideoGenerationHandler) DeleteVideoGeneration(c *gin.Context) {
 // GenerateKeyframeVideoPrompts 生成关键帧视频提示词
 func (h *VideoGenerationHandler) GenerateKeyframeVideoPrompts(c *gin.Context) {
 	var req struct {
-		StoryboardID  uint   `json:"storyboard_id" binding:"required"`
-		FrameImageIDs []uint `json:"frame_image_ids" binding:"required,min=2"`
+		StoryboardID   uint     `json:"storyboard_id" binding:"required"`
+		FrameImageIDs  []uint   `json:"frame_image_ids" binding:"required,min=2"`
+		GenerationMode string   `json:"generation_mode"` // 可选：parallel, sequential, keyframe_parallel
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	prompts, err := h.videoService.GenerateKeyframeVideoPrompts(req.StoryboardID, req.FrameImageIDs)
+	prompts, durations, err := h.videoService.GenerateKeyframeVideoPrompts(req.StoryboardID, req.FrameImageIDs, req.GenerationMode)
 	if err != nil {
 		h.log.Errorw("Failed to generate keyframe video prompts", "error", err)
 		response.InternalError(c, err.Error())
 		return
 	}
 
-	response.Success(c, gin.H{"prompts": prompts})
+	result := gin.H{"prompts": prompts}
+	if len(durations) > 0 {
+		result["durations"] = durations
+	}
+	response.Success(c, result)
 }
 
 // GenerateKeyframeSequenceVideos 批量生成关键帧序列视频

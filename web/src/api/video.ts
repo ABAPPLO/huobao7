@@ -45,8 +45,9 @@ export const videoAPI = {
   generateKeyframeVideoPrompts(data: {
     storyboard_id: number;
     frame_image_ids: number[];
-  }): Promise<{ prompts: string[] }> {
-    return request.post<{ prompts: string[] }>('/videos/keyframe-prompts', data)
+    generation_mode?: string;
+  }): Promise<{ prompts: string[]; durations?: number[] }> {
+    return request.post<{ prompts: string[]; durations?: number[] }>('/videos/keyframe-prompts', data)
   },
 
   generateKeyframeSequenceVideos(data: {
@@ -54,8 +55,9 @@ export const videoAPI = {
     drama_id: string;
     frame_image_ids: number[];
     video_prompts: string[];
-    generation_mode?: 'parallel' | 'sequential';
+    generation_mode?: 'parallel' | 'sequential' | 'keyframe_parallel';
     model?: string;
+    durations?: number[];
   }): Promise<{ task_id: string; status: string }> {
     return request.post<{ task_id: string; status: string }>('/videos/keyframe-sequence', data)
   }

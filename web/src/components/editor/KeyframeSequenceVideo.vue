@@ -9,7 +9,7 @@
     >
       <span>关键帧序列视频生成</span>
       <el-tag type="info" size="small">
-        {{ actionSequenceImages.length }}帧 / {{ actionSequenceImages.length - 1 }}段视频
+        {{ actionSequenceImages.length }}帧 / {{ videoCount }}段视频
       </el-tag>
       <el-radio-group v-model="keyframeFrameCount" size="small" style="margin-left: auto">
         <el-radio-button :value="4">4帧</el-radio-button>
@@ -25,6 +25,7 @@
       <el-radio-group v-model="keyframeGenerationMode" size="small">
         <el-radio-button value="parallel">并行生成</el-radio-button>
         <el-radio-button value="sequential">串行生成</el-radio-button>
+        <el-radio-button value="keyframe_parallel">关键帧并行</el-radio-button>
       </el-radio-group>
     </div>
 
@@ -122,14 +123,26 @@
         style="margin-bottom: 12px; padding: 12px; background: #fff; border-radius: 4px"
       >
         <div class="prompt-header" style="display: flex; align-items: center; margin-bottom: 8px">
-          <el-tag size="small" type="primary">帧{{ index + 1 }} → 帧{{ index + 2 }}</el-tag>
+          <el-tag size="small" type="primary">
+            {{ keyframeGenerationMode === 'keyframe_parallel' ? `帧${index + 1}` : `帧${index + 1} → 帧${index + 2}` }}
+          </el-tag>
           <span style="margin-left: 8px; font-size: 12px; color: #666">视频提示词</span>
+          <el-tag
+            v-if="keyframeGenerationMode === 'keyframe_parallel' && keyframeVideoDurations[index]"
+            size="small"
+            type="warning"
+            style="margin-left: auto"
+          >
+            {{ keyframeVideoDurations[index] }}秒
+          </el-tag>
         </div>
         <el-input
           v-model="keyframeVideoPrompts[index]"
           type="textarea"
           :rows="2"
-          placeholder="描述从帧{{ index + 1 }}到帧{{ index + 2 }}的动作过渡..."
+          :placeholder="keyframeGenerationMode === 'keyframe_parallel'
+            ? `描述帧${index + 1}画面的动作表现...`
+            : `描述从帧${index + 1}到帧${index + 2}的动作过渡...`"
         />
       </div>
     </div>
@@ -192,8 +205,9 @@ const emit = defineEmits<{
 }>();
 
 // Generation state
-const keyframeGenerationMode = ref<"parallel" | "sequential">("parallel");
+const keyframeGenerationMode = ref<"parallel" | "sequential" | "keyframe_parallel">("parallel");
 const keyframeVideoPrompts = ref<string[]>([]);
+const keyframeVideoDurations = ref<number[]>([]);
 const generatingKeyframePrompts = ref(false);
 const generatingKeyframeVideos = ref(false);
 const keyframeVideoTaskId = ref<string | null>(null);
@@ -238,6 +252,13 @@ const keyframeFrameCount = ref<number>(0); // 0 = all
 const actionSequenceImages = computed(() => {
   if (keyframeFrameCount.value === 0) return props.availableImages;
   return props.availableImages.slice(0, keyframeFrameCount.value);
+});
+
+// 根据生成模式计算视频段数
+const videoCount = computed(() => {
+  const frameCount = actionSequenceImages.value.length;
+  if (keyframeGenerationMode.value === "keyframe_parallel") return frameCount;
+  return Math.max(0, frameCount - 1);
 });
 
 const keyframeFrameSlots = ref<(number | null)[]>([]);
@@ -341,8 +362,10 @@ const handleGeneratePrompts = async () => {
     const result = await videoAPI.generateKeyframeVideoPrompts({
       storyboard_id: props.storyboardId,
       frame_image_ids: frameImageIds,
+      generation_mode: keyframeGenerationMode.value,
     });
     keyframeVideoPrompts.value = result.prompts || [];
+    keyframeVideoDurations.value = result.durations || [];
     ElMessage.success("视频提示词生成成功");
   } catch (error: any) {
     ElMessage.error(error.message || "生成视频提示词失败");
@@ -377,6 +400,7 @@ const handleStartGeneration = async () => {
       video_prompts: keyframeVideoPrompts.value,
       generation_mode: keyframeGenerationMode.value,
       model: props.selectedVideoModel || undefined,
+      durations: keyframeVideoDurations.value.length > 0 ? keyframeVideoDurations.value : undefined,
     });
 
     const taskId = result.task_id;
@@ -415,6 +439,12 @@ const handleStartGeneration = async () => {
 };
 
 // Expose handleImageClick for parent to call when action images are clicked
+// 切换生成模式时清空提示词（因为数量不同）
+watch(keyframeGenerationMode, () => {
+  keyframeVideoPrompts.value = [];
+  keyframeVideoDurations.value = [];
+});
+
 defineExpose({ handleImageClick });
 </script>
 
