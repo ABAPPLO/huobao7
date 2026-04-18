@@ -136,6 +136,20 @@ export const dramaAPI = {
     return request.post<{ image_generation: { id: number } }>('/scenes/generate-image', data)
   },
 
+  generateMultiAngleSceneImage(data: { scene_id: number; prompt?: string; model?: string }) {
+    return request.post<{
+      task_id: string
+      image_generations: { id: number }[]
+    }>('/scenes/generate-multi-angle-image', data)
+  },
+
+  getSceneAngleImages(sceneId: number) {
+    return request.get<{
+      images: any[]
+      total: number
+    }>(`/scenes/${sceneId}/angle-images`)
+  },
+
   updateScenePrompt(sceneId: string, prompt: string) {
     return request.put(`/scenes/${sceneId}/prompt`, { prompt })
   },

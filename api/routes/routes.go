@@ -157,6 +157,8 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			scenes.DELETE("/:scene_id", sceneHandler.DeleteScene)
 
 			scenes.POST("/generate-image", sceneHandler.GenerateSceneImage)
+			scenes.POST("/generate-multi-angle-image", sceneHandler.GenerateMultiAngleSceneImage)
+			scenes.GET("/:scene_id/angle-images", sceneHandler.GetSceneAngleImages)
 			scenes.POST("", sceneHandler.CreateScene)
 		}
 

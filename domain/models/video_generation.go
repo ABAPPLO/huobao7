@@ -45,6 +45,13 @@ type VideoGeneration struct {
 	CameraMotion *string `gorm:"type:varchar(100)" json:"camera_motion,omitempty"`
 	Seed         *int64  `json:"seed,omitempty"`
 
+	// Seedance 2.0 扩展参数
+	GenerateAudio      *bool   `json:"generate_audio,omitempty"`
+	Watermark          *bool   `json:"watermark,omitempty"`
+	Ratio              *string `gorm:"type:varchar(20)" json:"ratio,omitempty"` // adaptive, 16:9, 9:16 等
+	ReferenceVideoURLs *string `gorm:"type:text" json:"reference_video_urls,omitempty"` // JSON数组
+	ReferenceAudioURLs *string `gorm:"type:text" json:"reference_audio_urls,omitempty"` // JSON数组
+
 	VideoURL  *string `gorm:"type:varchar(1000)" json:"video_url,omitempty"`
 	MinioURL  *string `gorm:"type:varchar(1000)" json:"minio_url,omitempty"`
 	LocalPath *string `gorm:"type:varchar(500)" json:"local_path,omitempty"`

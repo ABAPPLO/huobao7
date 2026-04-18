@@ -470,6 +470,23 @@
                       </div>
                     </div>
 
+                    <!-- 多角度图片网格 -->
+                    <div v-if="scene.angle_images && scene.angle_images.length > 0" class="scene-angle-grid">
+                      <div
+                        v-for="(angleImg, idx) in scene.angle_images"
+                        :key="angleImg.id"
+                        class="angle-image-item"
+                        :class="{ 'is-selected': isAngleSelected(scene, angleImg) }"
+                        @click="selectAngleAsPrimary(scene, angleImg)"
+                      >
+                        <el-image :src="getAngleImageUrl(angleImg)" fit="cover" />
+                        <span class="angle-label">{{ getAngleLabel(angleImg.frame_type) }}</span>
+                        <span v-if="isAngleSelected(scene, angleImg)" class="angle-check">
+                          <el-icon><Check /></el-icon>
+                        </span>
+                      </div>
+                    </div>
+
                     <div class="card-actions">
                       <el-tooltip
                         :content="$t('tooltip.editPrompt')"
@@ -494,6 +511,17 @@
                           :icon="MagicStick"
                           circle
                         />
+                      </el-tooltip>
+                      <el-tooltip content="多角度生成" placement="top">
+                        <el-button
+                          type="warning"
+                          size="small"
+                          @click="generateMultiAngleSceneImages(scene.id)"
+                          :loading="generatingMultiAngleImages[scene.id]"
+                          circle
+                        >
+                          <el-icon><View /></el-icon>
+                        </el-button>
                       </el-tooltip>
                       <el-tooltip
                         :content="$t('tooltip.uploadImage')"
@@ -1319,11 +1347,14 @@ import {
   Document,
   Plus,
   Box,
+  View,
+  Check,
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
 import { characterLibraryAPI } from "@/api/character-library";
 import { aiAPI } from "@/api/ai";
+import { taskAPI } from "@/api/task";
 import type { AIServiceConfig } from "@/types/ai";
 import { imageAPI } from "@/api/image";
 import { propAPI } from "@/api/prop";
@@ -1357,6 +1388,7 @@ const batchGeneratingProps = ref(false);
 const generatingCharacterImages = ref<Record<number, boolean>>({});
 const generatingSceneImages = ref<Record<string, boolean>>({});
 const generatingPropImages = ref<Record<number, boolean>>({});
+const generatingMultiAngleImages = ref<Record<string, boolean>>({});
 
 // 选择状态
 const selectedCharacterIds = ref<number[]>([]);
@@ -2104,6 +2136,94 @@ const batchGenerateSceneImages = async () => {
     ElMessage.error(error.message || $t("workflow.batchGenerateFailed"));
   } finally {
     batchGeneratingScenes.value = false;
+  }
+};
+
+// 多角度场景图片生成
+const generateMultiAngleSceneImages = async (sceneId: number) => {
+  generatingMultiAngleImages.value[sceneId] = true;
+  try {
+    const model = selectedImageModel.value || undefined;
+    const response = await dramaAPI.generateMultiAngleSceneImage({
+      scene_id: sceneId,
+      model,
+    });
+
+    ElMessage.info("多角度场景图片生成中，共6张...");
+
+    // 轮询任务状态
+    const taskId = response.task_id;
+    if (taskId) {
+      const maxAttempts = 200;
+      const interval = 5000;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, interval));
+        try {
+          const task = await taskAPI.getStatus(taskId);
+          if (task.status === "completed") {
+            await loadDramaData();
+            ElMessage.success("多角度场景图片生成完成！");
+            break;
+          } else if (task.status === "failed") {
+            ElMessage.error(`多角度生成失败: ${task.error || "未知错误"}`);
+            break;
+          }
+        } catch {
+          // continue polling
+        }
+      }
+    } else {
+      await loadDramaData();
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || "多角度生成失败");
+  } finally {
+    generatingMultiAngleImages.value[sceneId] = false;
+  }
+};
+
+const getAngleLabel = (frameType?: string): string => {
+  const labels: Record<string, string> = {
+    angle_front: "正面",
+    angle_left: "左侧",
+    angle_right: "右侧",
+    angle_topdown: "俯视",
+    angle_low: "仰视",
+    angle_back: "背面",
+  };
+  return labels[frameType || ""] || frameType || "";
+};
+
+const getAngleImageUrl = (img: any): string => {
+  if (img.local_path) {
+    return `/static/${img.local_path}`;
+  }
+  return img.image_url || "";
+};
+
+const isAngleSelected = (scene: any, angleImg: any): boolean => {
+  if (!scene.image_url) return false;
+  const imgUrl = getAngleImageUrl(angleImg);
+  // 匹配 image_url 或 local_path
+  return scene.image_url === angleImg.image_url ||
+    scene.image_url === imgUrl ||
+    (scene.local_path && scene.local_path === angleImg.local_path);
+};
+
+const selectAngleAsPrimary = async (scene: any, angleImg: any) => {
+  if (isAngleSelected(scene, angleImg)) return; // 已选中则跳过
+  const imageUrl = angleImg.image_url || "";
+  if (!imageUrl && !angleImg.local_path) return;
+
+  try {
+    await dramaAPI.updateScene(scene.id, {
+      image_url: imageUrl || undefined,
+      local_path: angleImg.local_path || undefined,
+    });
+    await loadDramaData();
+    ElMessage.success("已切换场景图");
+  } catch (error: any) {
+    ElMessage.error("切换失败: " + (error.message || ""));
   }
 };
 
@@ -3067,6 +3187,67 @@ onMounted(() => {
     align-items: center;
     justify-content: center;
     background: var(--bg-secondary);
+
+    .scene-angle-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+    }
+
+    .angle-image-item {
+      position: relative;
+      aspect-ratio: 16/9;
+      overflow: hidden;
+      cursor: pointer;
+      transition: outline 0.2s;
+
+      &:hover {
+        outline: 2px solid var(--el-color-primary);
+        outline-offset: -2px;
+        z-index: 1;
+      }
+
+      &.is-selected {
+        outline: 3px solid var(--el-color-primary);
+        outline-offset: -3px;
+        z-index: 2;
+      }
+
+      .el-image {
+        width: 100%;
+        height: 100%;
+      }
+
+      .angle-label {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 10px;
+        text-align: center;
+        padding: 2px 0;
+      }
+
+      .angle-check {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--el-color-primary);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+      }
+    }
 
     .char-image,
     .scene-image {

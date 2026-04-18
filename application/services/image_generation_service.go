@@ -421,20 +421,35 @@ func (s *ImageGenerationService) completeImageGeneration(imageGenID uint, result
 
 	// 如果关联了scene，同步更新scene的image_url、local_path和status（仅当ImageType是scene时）
 	if imageGen.SceneID != nil && imageGen.ImageType == string(models.ImageTypeScene) {
-		sceneUpdates := map[string]interface{}{
-			"status":    "generated",
-			"image_url": result.ImageURL,
+		// 多角度图片：仅在场景无主图时更新（首次完成获胜）
+		isAngleImage := imageGen.FrameType != nil && strings.HasPrefix(*imageGen.FrameType, "angle_")
+		shouldUpdate := true
+
+		if isAngleImage {
+			var scene models.Scene
+			if err := s.db.Where("id = ?", *imageGen.SceneID).First(&scene).Error; err == nil {
+				if scene.ImageURL != nil && *scene.ImageURL != "" {
+					shouldUpdate = false
+				}
+			}
 		}
-		if localPath != nil {
-			sceneUpdates["local_path"] = localPath
-		}
-		if err := s.db.Model(&models.Scene{}).Where("id = ?", *imageGen.SceneID).Updates(sceneUpdates).Error; err != nil {
-			s.log.Errorw("Failed to update scene", "error", err, "scene_id", *imageGen.SceneID)
-		} else {
-			s.log.Infow("Scene updated with generated image",
-				"scene_id", *imageGen.SceneID,
-				"image_url", truncateImageURL(result.ImageURL),
-				"local_path", localPath)
+
+		if shouldUpdate {
+			sceneUpdates := map[string]interface{}{
+				"status":    "generated",
+				"image_url": result.ImageURL,
+			}
+			if localPath != nil {
+				sceneUpdates["local_path"] = localPath
+			}
+			if err := s.db.Model(&models.Scene{}).Where("id = ?", *imageGen.SceneID).Updates(sceneUpdates).Error; err != nil {
+				s.log.Errorw("Failed to update scene", "error", err, "scene_id", *imageGen.SceneID)
+			} else {
+				s.log.Infow("Scene updated with generated image",
+					"scene_id", *imageGen.SceneID,
+					"image_url", truncateImageURL(result.ImageURL),
+					"local_path", localPath)
+			}
 		}
 	}
 
@@ -1363,4 +1378,14 @@ func (s *ImageGenerationService) loadImageAsBase64(localPath string) (string, er
 	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, base64Data)
 
 	return dataURI, nil
+}
+
+// GetAngleImagesForScene 获取场景的多角度图片
+func (s *ImageGenerationService) GetAngleImagesForScene(sceneID uint) ([]models.ImageGeneration, error) {
+	var images []models.ImageGeneration
+	err := s.db.Where(
+		"scene_id = ? AND image_type = ? AND frame_type LIKE ?",
+		sceneID, "scene", "angle_%",
+	).Order("created_at ASC").Find(&images).Error
+	return images, err
 }

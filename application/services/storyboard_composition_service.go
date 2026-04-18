@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	models "github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
@@ -10,16 +11,18 @@ import (
 )
 
 type StoryboardCompositionService struct {
-	db       *gorm.DB
-	log      *logger.Logger
-	imageGen *ImageGenerationService
+	db          *gorm.DB
+	log         *logger.Logger
+	imageGen    *ImageGenerationService
+	taskService *TaskService
 }
 
 func NewStoryboardCompositionService(db *gorm.DB, log *logger.Logger, imageGen *ImageGenerationService) *StoryboardCompositionService {
 	return &StoryboardCompositionService{
-		db:       db,
-		log:      log,
-		imageGen: imageGen,
+		db:          db,
+		log:         log,
+		imageGen:    imageGen,
+		taskService: NewTaskService(db, log),
 	}
 }
 
@@ -38,12 +41,13 @@ type ScenePropInfo struct {
 }
 
 type SceneBackgroundInfo struct {
-	ID        uint    `json:"id"`
-	Location  string  `json:"location"`
-	Time      string  `json:"time"`
-	ImageURL  *string `json:"image_url,omitempty"`
-	LocalPath *string `json:"local_path,omitempty"`
-	Status    string  `json:"status"`
+	ID          uint                  `json:"id"`
+	Location    string                `json:"location"`
+	Time        string                `json:"time"`
+	ImageURL    *string               `json:"image_url,omitempty"`
+	LocalPath   *string               `json:"local_path,omitempty"`
+	Status      string                `json:"status"`
+	AngleImages []models.ImageGeneration `json:"angle_images,omitempty"`
 }
 
 type SceneCompositionInfo struct {
@@ -127,6 +131,26 @@ func (s *StoryboardCompositionService) GetScenesForEpisode(episodeID string) ([]
 		if err := s.db.Where("id IN ?", sceneIDs).Find(&scenes).Error; err == nil {
 			for i := range scenes {
 				sceneMap[scenes[i].ID] = &scenes[i]
+			}
+		}
+
+		// 批量加载场景的多角度图片
+		var allAngleImages []models.ImageGeneration
+		if err := s.db.Where(
+			"scene_id IN ? AND image_type = ? AND frame_type LIKE ? AND status = ?",
+			sceneIDs, "scene", "angle_%", "completed",
+		).Order("created_at ASC").Find(&allAngleImages).Error; err == nil {
+			angleMap := make(map[uint][]models.ImageGeneration)
+			for _, img := range allAngleImages {
+				if img.SceneID != nil {
+					angleMap[*img.SceneID] = append(angleMap[*img.SceneID], img)
+				}
+			}
+			for i := range scenes {
+				if imgs, ok := angleMap[scenes[i].ID]; ok {
+					scenes[i].AngleImages = imgs
+					sceneMap[scenes[i].ID] = &scenes[i]
+				}
 			}
 		}
 	}
@@ -246,12 +270,13 @@ func (s *StoryboardCompositionService) GetScenesForEpisode(episodeID string) ([]
 		if storyboard.SceneID != nil {
 			if scene, ok := sceneMap[*storyboard.SceneID]; ok {
 				storyboardInfo.Background = &SceneBackgroundInfo{
-					ID:        scene.ID,
-					Location:  scene.Location,
-					Time:      scene.Time,
-					ImageURL:  scene.ImageURL,
-					LocalPath: scene.LocalPath,
-					Status:    scene.Status,
+					ID:          scene.ID,
+					Location:    scene.Location,
+					Time:        scene.Time,
+					ImageURL:    scene.ImageURL,
+					LocalPath:   scene.LocalPath,
+					Status:      scene.Status,
+					AngleImages: scene.AngleImages,
 				}
 			}
 		}
@@ -431,6 +456,128 @@ func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImag
 	}
 
 	return nil, fmt.Errorf("image generation service not available")
+}
+
+// GenerateMultiAngleSceneImagesRequest 多角度场景图片生成请求
+type GenerateMultiAngleSceneImagesRequest struct {
+	SceneID uint   `json:"scene_id"`
+	Prompt  string `json:"prompt"`
+	Model   string `json:"model"`
+}
+
+// GenerateMultiAngleSceneImages 生成6张不同角度的场景图片
+func (s *StoryboardCompositionService) GenerateMultiAngleSceneImages(req *GenerateMultiAngleSceneImagesRequest) (string, []*models.ImageGeneration, error) {
+	// 获取场景
+	var scene models.Scene
+	if err := s.db.Where("id = ?", req.SceneID).First(&scene).Error; err != nil {
+		return "", nil, fmt.Errorf("scene not found")
+	}
+
+	// 构建基础提示词
+	basePrompt := req.Prompt
+	if basePrompt == "" {
+		basePrompt = scene.Prompt
+		if basePrompt == "" {
+			basePrompt = fmt.Sprintf("%s场景，%s", scene.Location, scene.Time)
+		}
+	}
+
+	// 创建异步任务
+	task, err := s.taskService.CreateTask("multi_angle_scene", fmt.Sprintf("%d", req.SceneID))
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create task: %w", err)
+	}
+
+	// 为每个角度创建图片生成记录
+	var imageGens []*models.ImageGeneration
+	var imageGenIDs []uint
+
+	for _, angle := range models.AngleDefinitions {
+		anglePrompt := fmt.Sprintf("%s, %s, %s", basePrompt, angle.LabelZH, angle.LabelEN)
+		frameType := angle.Type
+
+		genReq := &GenerateImageRequest{
+			SceneID:   &req.SceneID,
+			DramaID:   fmt.Sprintf("%d", scene.DramaID),
+			ImageType: string(models.ImageTypeScene),
+			FrameType: &frameType,
+			Prompt:    anglePrompt,
+			Model:     req.Model,
+			Size:      "2560x1440",
+			Quality:   "standard",
+		}
+
+		imageGen, err := s.imageGen.GenerateImage(genReq)
+		if err != nil {
+			s.log.Errorw("Failed to create angle image generation", "angle", angle.Type, "error", err)
+			continue
+		}
+
+		imageGens = append(imageGens, imageGen)
+		imageGenIDs = append(imageGenIDs, imageGen.ID)
+	}
+
+	if len(imageGens) == 0 {
+		s.taskService.UpdateTaskStatus(task.ID, "failed", 0, "所有角度图片生成创建失败")
+		return "", nil, fmt.Errorf("failed to create any image generation records")
+	}
+
+	// 启动后台轮询
+	go s.pollMultiAngleTask(task.ID, imageGenIDs, req.SceneID)
+
+	s.log.Infow("Multi-angle scene image generation started",
+		"scene_id", req.SceneID,
+		"task_id", task.ID,
+		"count", len(imageGens))
+
+	return task.ID, imageGens, nil
+}
+
+// pollMultiAngleTask 轮询多角度图片生成状态
+func (s *StoryboardCompositionService) pollMultiAngleTask(taskID string, imageGenIDs []uint, sceneID uint) {
+	totalCount := len(imageGenIDs)
+	s.taskService.UpdateTaskStatus(taskID, "processing", 0,
+		fmt.Sprintf("开始生成 %d 张多角度场景图片...", totalCount))
+
+	maxAttempts := 300
+	interval := 5 * time.Second
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		time.Sleep(interval)
+
+		var completed, failed int
+		for _, id := range imageGenIDs {
+			var img models.ImageGeneration
+			if err := s.db.First(&img, id).Error; err != nil {
+				continue
+			}
+			if img.Status == models.ImageStatusCompleted {
+				completed++
+			} else if img.Status == models.ImageStatusFailed {
+				failed++
+			}
+		}
+
+		progress := (completed + failed) * 100 / totalCount
+		s.taskService.UpdateTaskStatus(taskID, "processing", progress,
+			fmt.Sprintf("已生成 %d/%d 张（失败 %d）", completed, totalCount, failed))
+
+		if completed+failed >= totalCount {
+			s.taskService.UpdateTaskResult(taskID, map[string]interface{}{
+				"image_gen_ids": imageGenIDs,
+			})
+			if failed == 0 {
+				s.taskService.UpdateTaskStatus(taskID, "completed", 100,
+					fmt.Sprintf("成功生成 %d 张多角度场景图片", completed))
+			} else {
+				s.taskService.UpdateTaskStatus(taskID, "completed", 100,
+					fmt.Sprintf("生成完成 %d 张，失败 %d 张", completed, failed))
+			}
+			return
+		}
+	}
+
+	s.taskService.UpdateTaskStatus(taskID, "failed", 0, "多角度图片生成超时")
 }
 
 type UpdateScenePromptRequest struct {

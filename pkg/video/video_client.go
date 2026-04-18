@@ -39,6 +39,11 @@ type VideoOptions struct {
 	FirstFrameURL      string
 	LastFrameURL       string
 	ReferenceImageURLs []string
+	GenerateAudio      bool
+	Watermark          bool
+	Ratio              string
+	ReferenceVideoURLs []string
+	ReferenceAudioURLs []string
 }
 
 type VideoOption func(*VideoOptions)
@@ -112,6 +117,36 @@ func WithLastFrame(url string) VideoOption {
 func WithReferenceImages(urls []string) VideoOption {
 	return func(o *VideoOptions) {
 		o.ReferenceImageURLs = urls
+	}
+}
+
+func WithGenerateAudio(enable bool) VideoOption {
+	return func(o *VideoOptions) {
+		o.GenerateAudio = enable
+	}
+}
+
+func WithWatermark(enable bool) VideoOption {
+	return func(o *VideoOptions) {
+		o.Watermark = enable
+	}
+}
+
+func WithRatio(ratio string) VideoOption {
+	return func(o *VideoOptions) {
+		o.Ratio = ratio
+	}
+}
+
+func WithReferenceVideos(urls []string) VideoOption {
+	return func(o *VideoOptions) {
+		o.ReferenceVideoURLs = urls
+	}
+}
+
+func WithReferenceAudios(urls []string) VideoOption {
+	return func(o *VideoOptions) {
+		o.ReferenceAudioURLs = urls
 	}
 }
 

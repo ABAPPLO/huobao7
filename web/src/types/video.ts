@@ -60,6 +60,14 @@ export interface GenerateVideoRequest {
   last_frame_url?: string   // 尾帧图片URL
   last_frame_local_path?: string  // 尾帧本地路径
   reference_image_urls?: string[]  // 多图参考模式
+
+  // Seedance 2.0 扩展参数
+  resolution?: string        // 720p, 480p
+  ratio?: string             // adaptive, 16:9, 9:16, 1:1, 4:3, 3:4, 21:9
+  generate_audio?: boolean   // 是否生成音频
+  watermark?: boolean        // 是否添加水印
+  reference_video_urls?: string[]  // 参考视频URL列表
+  reference_audio_urls?: string[]  // 参考音频URL列表
 }
 
 export interface VideoGenerationListParams {

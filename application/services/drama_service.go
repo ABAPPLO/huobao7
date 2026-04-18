@@ -179,6 +179,16 @@ func (s *DramaService) GetDrama(dramaID string) (*models.Drama, error) {
 					}
 				}
 			}
+
+			// 加载场景的多角度图片
+			var angleImages []models.ImageGeneration
+			s.db.Where(
+				"scene_id = ? AND image_type = ? AND frame_type LIKE ? AND status = ?",
+				drama.Episodes[i].Scenes[j].ID, "scene", "angle_%", "completed",
+			).Order("created_at ASC").Find(&angleImages)
+			if len(angleImages) > 0 {
+				drama.Episodes[i].Scenes[j].AngleImages = angleImages
+			}
 		}
 	}
 

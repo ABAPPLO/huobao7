@@ -150,6 +150,7 @@ type Scene struct {
 	// 运行时字段（不存储到数据库）
 	ImageGenerationStatus *string `gorm:"-" json:"image_generation_status,omitempty"`
 	ImageGenerationError  *string `gorm:"-" json:"image_generation_error,omitempty"`
+	AngleImages           []ImageGeneration `gorm:"-" json:"angle_images,omitempty"` // 多角度场景参考图
 }
 
 func (s *Scene) TableName() string {

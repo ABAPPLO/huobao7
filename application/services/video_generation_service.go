@@ -78,6 +78,14 @@ type GenerateVideoRequest struct {
 	MotionLevel  *int    `json:"motion_level"`
 	CameraMotion *string `json:"camera_motion"`
 	Seed         *int64  `json:"seed"`
+
+	// Seedance 2.0 扩展参数
+	Resolution        *string  `json:"resolution"`
+	Ratio             *string  `json:"ratio"`
+	GenerateAudio     *bool    `json:"generate_audio"`
+	Watermark         *bool    `json:"watermark"`
+	ReferenceVideoURLs []string `json:"reference_video_urls"`
+	ReferenceAudioURLs []string `json:"reference_audio_urls"`
 }
 
 func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*models.VideoGeneration, error) {
@@ -120,6 +128,32 @@ func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*
 		CameraMotion: request.CameraMotion,
 		Seed:         request.Seed,
 		Status:       models.VideoStatusPending,
+	}
+
+	// Seedance 2.0 扩展参数
+	if request.Resolution != nil {
+		videoGen.Resolution = request.Resolution
+	}
+	if request.Ratio != nil {
+		videoGen.Ratio = request.Ratio
+	}
+	if request.GenerateAudio != nil {
+		videoGen.GenerateAudio = request.GenerateAudio
+	}
+	if request.Watermark != nil {
+		videoGen.Watermark = request.Watermark
+	}
+	if len(request.ReferenceVideoURLs) > 0 {
+		if jsonData, err := json.Marshal(request.ReferenceVideoURLs); err == nil {
+			jsonStr := string(jsonData)
+			videoGen.ReferenceVideoURLs = &jsonStr
+		}
+	}
+	if len(request.ReferenceAudioURLs) > 0 {
+		if jsonData, err := json.Marshal(request.ReferenceAudioURLs); err == nil {
+			jsonStr := string(jsonData)
+			videoGen.ReferenceAudioURLs = &jsonStr
+		}
 	}
 
 	// 根据参考图模式处理不同的参数
@@ -245,6 +279,32 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 	if drama.VideoResolution != "" {
 		opts = append(opts, video.WithResolution(drama.VideoResolution))
 		s.log.Infow("Using drama video resolution", "id", videoGenID, "resolution", drama.VideoResolution)
+	}
+
+	// Seedance 2.0 扩展参数
+	if videoGen.Resolution != nil {
+		opts = append(opts, video.WithResolution(*videoGen.Resolution))
+	}
+	if videoGen.Ratio != nil {
+		opts = append(opts, video.WithRatio(*videoGen.Ratio))
+	}
+	if videoGen.GenerateAudio != nil {
+		opts = append(opts, video.WithGenerateAudio(*videoGen.GenerateAudio))
+	}
+	if videoGen.Watermark != nil {
+		opts = append(opts, video.WithWatermark(*videoGen.Watermark))
+	}
+	if videoGen.ReferenceVideoURLs != nil {
+		var urls []string
+		if err := json.Unmarshal([]byte(*videoGen.ReferenceVideoURLs), &urls); err == nil {
+			opts = append(opts, video.WithReferenceVideos(urls))
+		}
+	}
+	if videoGen.ReferenceAudioURLs != nil {
+		var urls []string
+		if err := json.Unmarshal([]byte(*videoGen.ReferenceAudioURLs), &urls); err == nil {
+			opts = append(opts, video.WithReferenceAudios(urls))
+		}
 	}
 
 	// 根据参考图模式添加相应的选项，并将本地图片转换为base64

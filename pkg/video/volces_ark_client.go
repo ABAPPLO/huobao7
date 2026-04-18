@@ -24,13 +24,19 @@ type VolcesArkContent struct {
 	Type     string                 `json:"type"`
 	Text     string                 `json:"text,omitempty"`
 	ImageURL map[string]interface{} `json:"image_url,omitempty"`
+	VideoURL map[string]interface{} `json:"video_url,omitempty"`
+	AudioURL map[string]interface{} `json:"audio_url,omitempty"`
 	Role     string                 `json:"role,omitempty"`
 }
 
 type VolcesArkRequest struct {
 	Model         string             `json:"model"`
 	Content       []VolcesArkContent `json:"content"`
+	Resolution    string             `json:"resolution,omitempty"`
+	Ratio         string             `json:"ratio,omitempty"`
+	Duration      int                `json:"duration,omitempty"`
 	GenerateAudio bool               `json:"generate_audio,omitempty"`
+	Watermark     bool               `json:"watermark,omitempty"`
 }
 
 type VolcesArkResponse struct {
@@ -76,7 +82,7 @@ func NewVolcesArkClient(baseURL, apiKey, model, endpoint, queryEndpoint string) 
 	}
 }
 
-// GenerateVideo 生成视频（支持首帧、首尾帧、参考图等多种模式）
+// GenerateVideo 生成视频（支持首帧、首尾帧、参考图、多模态等多种模式）
 func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
 	options := &VideoOptions{
 		Duration:    5,
@@ -92,19 +98,13 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 		model = options.Model
 	}
 
-	// 构建prompt文本（包含duration和ratio参数）
-	promptText := prompt
-	if options.AspectRatio != "" {
-		promptText += fmt.Sprintf("  --ratio %s", options.AspectRatio)
-	}
-	if options.Duration > 0 {
-		promptText += fmt.Sprintf("  --dur %d", options.Duration)
-	}
+	isSeedance2 := strings.Contains(strings.ToLower(model), "seedance-2")
 
+	// 构建 content 数组
 	content := []VolcesArkContent{
 		{
 			Type: "text",
-			Text: promptText,
+			Text: prompt,
 		},
 	}
 
@@ -143,7 +143,6 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 			ImageURL: map[string]interface{}{
 				"url": imageURL,
 			},
-			// 单图模式不需要role
 		})
 	} else if options.FirstFrameURL != "" {
 		// 4. 只有首帧
@@ -156,16 +155,64 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 		})
 	}
 
-	// 只有 seedance-1-5-pro 模型支持 generate_audio 参数
-	generateAudio := false
-	if strings.Contains(strings.ToLower(model), "seedance-1-5-pro") {
-		generateAudio = true
+	// 5. 参考视频（多模态）
+	for _, videoURL := range options.ReferenceVideoURLs {
+		content = append(content, VolcesArkContent{
+			Type: "video_url",
+			VideoURL: map[string]interface{}{
+				"url": videoURL,
+			},
+			Role: "reference_video",
+		})
 	}
 
+	// 6. 参考音频（多模态）
+	for _, audioURL := range options.ReferenceAudioURLs {
+		content = append(content, VolcesArkContent{
+			Type: "audio_url",
+			AudioURL: map[string]interface{}{
+				"url": audioURL,
+			},
+			Role: "reference_audio",
+		})
+	}
+
+	// 构建请求体
 	reqBody := VolcesArkRequest{
-		Model:         model,
-		Content:       content,
-		GenerateAudio: generateAudio,
+		Model:   model,
+		Content: content,
+	}
+
+	if isSeedance2 {
+		// Seedance 2.0: 参数作为顶层字段
+		if options.Duration > 0 {
+			reqBody.Duration = options.Duration
+		}
+		if options.Ratio != "" {
+			reqBody.Ratio = options.Ratio
+		} else if options.AspectRatio != "" {
+			reqBody.Ratio = options.AspectRatio
+		}
+		if options.Resolution != "" {
+			reqBody.Resolution = options.Resolution
+		}
+		reqBody.GenerateAudio = options.GenerateAudio
+		reqBody.Watermark = options.Watermark
+	} else {
+		// 旧版模型: duration/ratio 嵌入 prompt 文本
+		promptText := content[0].Text
+		if options.AspectRatio != "" {
+			promptText += fmt.Sprintf("  --ratio %s", options.AspectRatio)
+		}
+		if options.Duration > 0 {
+			promptText += fmt.Sprintf("  --dur %d", options.Duration)
+		}
+		content[0].Text = promptText
+
+		// 只有 seedance-1-5-pro 模型自动开启 generate_audio
+		if strings.Contains(strings.ToLower(model), "seedance-1-5-pro") {
+			reqBody.GenerateAudio = true
+		}
 	}
 
 	jsonData, err := json.Marshal(reqBody)

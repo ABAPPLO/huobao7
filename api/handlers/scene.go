@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"strconv"
+
 	services2 "github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
@@ -9,14 +11,16 @@ import (
 )
 
 type SceneHandler struct {
-	sceneService *services2.StoryboardCompositionService
-	log          *logger.Logger
+	sceneService  *services2.StoryboardCompositionService
+	imageService  *services2.ImageGenerationService
+	log           *logger.Logger
 }
 
 func NewSceneHandler(db *gorm.DB, log *logger.Logger, imageGenService *services2.ImageGenerationService) *SceneHandler {
 	return &SceneHandler{
-		sceneService: services2.NewStoryboardCompositionService(db, log, imageGenService),
-		log:          log,
+		sceneService:  services2.NewStoryboardCompositionService(db, log, imageGenService),
+		imageService:  imageGenService,
+		log:           log,
 	}
 }
 
@@ -132,4 +136,45 @@ func (h *SceneHandler) CreateScene(c *gin.Context) {
 	}
 
 	response.Success(c, scene)
+}
+
+func (h *SceneHandler) GenerateMultiAngleSceneImage(c *gin.Context) {
+	var req services2.GenerateMultiAngleSceneImagesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	taskID, imageGens, err := h.sceneService.GenerateMultiAngleSceneImages(&req)
+	if err != nil {
+		h.log.Errorw("Failed to generate multi-angle scene images", "error", err)
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"message":           "多角度场景图片生成已开始",
+		"task_id":           taskID,
+		"image_generations": imageGens,
+	})
+}
+
+func (h *SceneHandler) GetSceneAngleImages(c *gin.Context) {
+	sceneIDStr := c.Param("scene_id")
+	sceneID, err := strconv.ParseUint(sceneIDStr, 10, 32)
+	if err != nil {
+		response.BadRequest(c, "Invalid scene ID")
+		return
+	}
+
+	images, err := h.imageService.GetAngleImagesForScene(uint(sceneID))
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"images": images,
+		"total":  len(images),
+	})
 }

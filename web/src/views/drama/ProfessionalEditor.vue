@@ -144,6 +144,24 @@
                     }}
                   </div>
                 </div>
+                <!-- 场景多角度图 -->
+                <div
+                  v-if="currentStoryboard?.background?.angle_images && currentStoryboard.background.angle_images.length > 0"
+                  class="scene-editor-angles"
+                >
+                  <div class="angle-label-title">其他角度</div>
+                  <div class="angle-thumbs">
+                    <div
+                      v-for="angleImg in currentStoryboard.background.angle_images"
+                      :key="angleImg.id"
+                      class="angle-thumb"
+                      @click="applyAngleToStoryboard(angleImg)"
+                    >
+                      <img :src="getAngleImageSrc(angleImg)" alt="" />
+                      <span>{{ getAngleLabelName(angleImg.frame_type) }}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- 登场角色(Cast) -->
@@ -805,6 +823,67 @@
                         >{{ videoDuration
                         }}{{ $t("professionalEditor.seconds") }}</span
                       >
+                    </div>
+                  </div>
+
+                  <!-- Seedance 2.0 扩展参数 -->
+                  <div
+                    v-if="selectedVideoModel && selectedVideoModel.includes('seedance-2')"
+                    class="seedance-params"
+                    style="margin-top: 8px; padding: 8px; background: #f8f9fa; border-radius: 6px;"
+                  >
+                    <div style="font-size: 12px; color: #666; margin-bottom: 6px; font-weight: 500;">Seedance 2.0 参数</div>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                      <div style="flex: 1; min-width: 120px;">
+                        <div style="font-size: 11px; color: #999; margin-bottom: 2px;">分辨率</div>
+                        <el-select v-model="seedanceResolution" size="small" style="width: 100%">
+                          <el-option label="720p" value="720p" />
+                          <el-option label="480p" value="480p" />
+                        </el-select>
+                      </div>
+                      <div style="flex: 1; min-width: 120px;">
+                        <div style="font-size: 11px; color: #999; margin-bottom: 2px;">宽高比</div>
+                        <el-select v-model="seedanceRatio" size="small" style="width: 100%">
+                          <el-option label="自适应" value="adaptive" />
+                          <el-option label="16:9" value="16:9" />
+                          <el-option label="9:16" value="9:16" />
+                          <el-option label="1:1" value="1:1" />
+                          <el-option label="4:3" value="4:3" />
+                          <el-option label="3:4" value="3:4" />
+                          <el-option label="21:9" value="21:9" />
+                        </el-select>
+                      </div>
+                      <div style="flex: 1; min-width: 80px;">
+                        <div style="font-size: 11px; color: #999; margin-bottom: 2px;">生成音频</div>
+                        <el-switch v-model="seedanceGenerateAudio" size="small" />
+                      </div>
+                      <div style="flex: 1; min-width: 80px;">
+                        <div style="font-size: 11px; color: #999; margin-bottom: 2px;">水印</div>
+                        <el-switch v-model="seedanceWatermark" size="small" />
+                      </div>
+                    </div>
+
+                    <!-- 多模态参考（仅多图模式） -->
+                    <div v-if="selectedReferenceMode === 'multiple'" style="margin-top: 10px;">
+                      <div style="font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 500;">多模态参考</div>
+                      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 200px;">
+                          <div style="font-size: 11px; color: #999; margin-bottom: 2px;">参考视频URL (最多3个)</div>
+                          <div v-for="(_, idx) in seedanceRefVideoURLs" :key="'v'+idx" style="display: flex; gap: 4px; margin-bottom: 4px;">
+                            <el-input v-model="seedanceRefVideoURLs[idx]" size="small" placeholder="视频URL" style="flex:1" />
+                            <el-button size="small" @click="seedanceRefVideoURLs.splice(idx, 1)" text type="danger">删除</el-button>
+                          </div>
+                          <el-button v-if="seedanceRefVideoURLs.length < 3" size="small" @click="seedanceRefVideoURLs.push('')">+ 添加视频</el-button>
+                        </div>
+                        <div style="flex: 1; min-width: 200px;">
+                          <div style="font-size: 11px; color: #999; margin-bottom: 2px;">参考音频URL (最多3个)</div>
+                          <div v-for="(_, idx) in seedanceRefAudioURLs" :key="'a'+idx" style="display: flex; gap: 4px; margin-bottom: 4px;">
+                            <el-input v-model="seedanceRefAudioURLs[idx]" size="small" placeholder="音频URL" style="flex:1" />
+                            <el-button size="small" @click="seedanceRefAudioURLs.splice(idx, 1)" text type="danger">删除</el-button>
+                          </div>
+                          <el-button v-if="seedanceRefAudioURLs.length < 3" size="small" @click="seedanceRefAudioURLs.push('')">+ 添加音频</el-button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2025,28 +2104,44 @@
     </el-dialog>
 
     <!-- 场景选择对话框 -->
-    <el-dialog v-model="showSceneSelector" title="选择场景背景" width="800px">
+    <el-dialog v-model="showSceneSelector" title="选择场景背景" width="900px">
       <div class="scene-selector-grid">
         <div
           v-for="scene in availableScenes"
           :key="scene.id"
           class="scene-card"
           :class="{ selected: currentStoryboard?.scene_id === scene.id }"
-          @click="selectScene(scene.id)"
         >
-          <div class="scene-image">
-            <img
-              v-if="hasImage(scene)"
-              :src="getImageUrl(scene)"
-              :alt="scene.location"
-            />
-            <el-icon v-else :size="48" color="#ccc">
-              <Picture />
-            </el-icon>
+          <div class="scene-card-main" @click="selectScene(scene.id)">
+            <div class="scene-image">
+              <img
+                v-if="hasImage(scene)"
+                :src="getImageUrl(scene)"
+                :alt="scene.location"
+              />
+              <el-icon v-else :size="48" color="#ccc">
+                <Picture />
+              </el-icon>
+            </div>
+            <div class="scene-info">
+              <div class="scene-location">{{ scene.location }}</div>
+              <div class="scene-time">{{ scene.time }}</div>
+            </div>
           </div>
-          <div class="scene-info">
-            <div class="scene-location">{{ scene.location }}</div>
-            <div class="scene-time">{{ scene.time }}</div>
+          <!-- 多角度图片选择 -->
+          <div v-if="scene.angle_images && scene.angle_images.length > 0" class="scene-angle-list">
+            <div class="angle-label-title">角度图</div>
+            <div class="angle-thumbs">
+              <div
+                v-for="angleImg in scene.angle_images"
+                :key="angleImg.id"
+                class="angle-thumb"
+                @click.stop="selectSceneWithAngle(scene.id, angleImg)"
+              >
+                <img :src="getAngleImageSrc(angleImg)" alt="" />
+                <span>{{ getAngleLabelName(angleImg.frame_type) }}</span>
+              </div>
+            </div>
           </div>
         </div>
         <div v-if="availableScenes.length === 0" class="empty-scenes">
@@ -2307,6 +2402,13 @@ const selectedImagesForVideo = ref<number[]>([]);
 const selectedLastImageForVideo = ref<number | null>(null);
 const generatingVideo = ref(false);
 const generatedVideos = ref<VideoGeneration[]>([]);
+// Seedance 2.0 扩展参数
+const seedanceResolution = ref("720p");
+const seedanceRatio = ref("adaptive");
+const seedanceGenerateAudio = ref(false);
+const seedanceWatermark = ref(false);
+const seedanceRefVideoURLs = ref<string[]>([]);
+const seedanceRefAudioURLs = ref<string[]>([]);
 const videoAssets = ref<Asset[]>([]);
 const loadingVideos = ref(false);
 const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
@@ -2400,6 +2502,20 @@ const defaultModelCapabilities: Record<
     supportFirstLastFrame: false,
     supportTextOnly: true,
     maxImages: 1,
+  },
+  "doubao-seedance-2-0-pro-260128": {
+    supportSingleImage: true,
+    supportMultipleImages: true,
+    supportFirstLastFrame: true,
+    supportTextOnly: true,
+    maxImages: 9,
+  },
+  "doubao-seedance-2-0-260128": {
+    supportSingleImage: true,
+    supportMultipleImages: true,
+    supportFirstLastFrame: true,
+    supportTextOnly: true,
+    maxImages: 9,
   },
   "sora-2": {
     supportSingleImage: true,
@@ -3697,6 +3813,23 @@ const generateVideo = async () => {
         break;
     }
 
+    // Seedance 2.0 扩展参数
+    if (selectedVideoModel.value && selectedVideoModel.value.includes("seedance-2")) {
+      requestParams.resolution = seedanceResolution.value;
+      requestParams.ratio = seedanceRatio.value;
+      requestParams.generate_audio = seedanceGenerateAudio.value;
+      requestParams.watermark = seedanceWatermark.value;
+      // 多模态参考URL
+      const validVideoURLs = seedanceRefVideoURLs.value.filter((u: string) => u.trim());
+      if (validVideoURLs.length > 0) {
+        requestParams.reference_video_urls = validVideoURLs;
+      }
+      const validAudioURLs = seedanceRefAudioURLs.value.filter((u: string) => u.trim());
+      if (validAudioURLs.length > 0) {
+        requestParams.reference_audio_urls = validAudioURLs;
+      }
+    }
+
     const result = await videoAPI.generateVideo(requestParams);
 
     generatedVideos.value.unshift(result);
@@ -3956,18 +4089,81 @@ const selectScene = async (sceneId: number) => {
   if (!currentStoryboard.value) return;
 
   try {
-    // TODO: 调用API更新分镜的scene_id
     await dramaAPI.updateStoryboard(currentStoryboard.value.id.toString(), {
       scene_id: sceneId,
     });
 
-    // 重新加载数据
     await loadData();
     showSceneSelector.value = false;
     ElMessage.success("场景关联成功");
   } catch (error: any) {
     ElMessage.error(error.message || "场景关联失败");
   }
+};
+
+// 选择场景的某个角度图作为分镜背景
+const selectSceneWithAngle = async (sceneId: number, angleImg: any) => {
+  if (!currentStoryboard.value) return;
+
+  try {
+    const imageUrl = angleImg.image_url || "";
+    const localPath = angleImg.local_path || "";
+
+    // 更新场景主图为该角度图
+    await dramaAPI.updateScene(sceneId.toString(), {
+      image_url: imageUrl,
+      local_path: localPath,
+    });
+
+    // 关联场景到分镜
+    await dramaAPI.updateStoryboard(currentStoryboard.value.id.toString(), {
+      scene_id: sceneId,
+    });
+
+    await loadData();
+    showSceneSelector.value = false;
+    ElMessage.success("已选择该角度作为场景图");
+  } catch (error: any) {
+    ElMessage.error(error.message || "选择失败");
+  }
+};
+
+// 在编辑面板中点击角度图应用到当前分镜的场景
+const applyAngleToStoryboard = async (angleImg: any) => {
+  if (!currentStoryboard.value?.background) return;
+
+  try {
+    const sceneId = currentStoryboard.value.background.id;
+    const imageUrl = angleImg.image_url || "";
+    const localPath = angleImg.local_path || "";
+
+    await dramaAPI.updateScene(sceneId.toString(), {
+      image_url: imageUrl,
+      local_path: localPath,
+    });
+
+    await loadData();
+    ElMessage.success("已切换场景角度");
+  } catch (error: any) {
+    ElMessage.error(error.message || "切换失败");
+  }
+};
+
+const getAngleImageSrc = (img: any): string => {
+  if (img.local_path) return `/static/${img.local_path}`;
+  return img.image_url || "";
+};
+
+const getAngleLabelName = (frameType?: string): string => {
+  const labels: Record<string, string> = {
+    angle_front: "正面",
+    angle_left: "左侧",
+    angle_right: "右侧",
+    angle_topdown: "俯视",
+    angle_low: "仰视",
+    angle_back: "背面",
+  };
+  return labels[frameType || ""] || frameType || "";
 };
 
 const selectStoryboard = (id: string) => {
@@ -4840,6 +5036,56 @@ onBeforeUnmount(() => {
   // 场景预览
   .scene-section {
     margin-bottom: 20px;
+
+    .scene-editor-angles {
+      margin-top: 6px;
+      padding: 6px 8px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      border: 1px solid var(--border-primary);
+    }
+
+    .angle-label-title {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .angle-thumbs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .angle-thumb {
+      position: relative;
+      width: 52px;
+      cursor: pointer;
+      border-radius: 3px;
+      overflow: hidden;
+      border: 2px solid transparent;
+      transition: border-color 0.2s;
+
+      &:hover {
+        border-color: var(--accent);
+      }
+
+      img {
+        width: 100%;
+        aspect-ratio: 16/9;
+        object-fit: cover;
+        display: block;
+      }
+
+      span {
+        display: block;
+        font-size: 8px;
+        text-align: center;
+        background: rgba(0,0,0,0.6);
+        color: #fff;
+        padding: 1px 0;
+      }
+    }
   }
 
   .scene-preview {
@@ -5101,6 +5347,58 @@ onBeforeUnmount(() => {
   .empty-scenes {
     grid-column: 1 / -1;
     padding: 40px 0;
+  }
+
+  .scene-card-main {
+    cursor: pointer;
+  }
+
+  .scene-angle-list {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+  }
+
+  .angle-label-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .angle-thumbs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .angle-thumb {
+    position: relative;
+    width: 56px;
+    cursor: pointer;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    transition: border-color 0.2s;
+
+    &:hover {
+      border-color: var(--accent);
+    }
+
+    img {
+      width: 100%;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+      display: block;
+    }
+
+    span {
+      display: block;
+      font-size: 9px;
+      text-align: center;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      padding: 1px 0;
+    }
   }
 }
 

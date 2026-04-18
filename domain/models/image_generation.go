@@ -76,3 +76,29 @@ const (
 	ImageTypeProp       ImageType = "prop"       // 道具图片
 	ImageTypeStoryboard ImageType = "storyboard" // 分镜图片
 )
+
+// 多角度场景图片常量
+const (
+	AngleTypeFront    = "angle_front"    // 正面视角
+	AngleTypeLeft     = "angle_left"     // 左侧面视角
+	AngleTypeRight    = "angle_right"    // 右侧面视角
+	AngleTypeTopDown  = "angle_topdown"  // 俯视视角
+	AngleTypeLowAngle = "angle_low"      // 仰视视角
+	AngleTypeBack     = "angle_back"     // 背面视角
+)
+
+// AngleDefinition 角度定义
+type AngleDefinition struct {
+	Type    string
+	LabelZH string
+	LabelEN string
+}
+
+var AngleDefinitions = []AngleDefinition{
+	{AngleTypeFront, "正面视角", "front view"},
+	{AngleTypeLeft, "左侧面视角", "left side view"},
+	{AngleTypeRight, "右侧面视角", "right side view"},
+	{AngleTypeTopDown, "俯视视角", "top-down aerial view"},
+	{AngleTypeLowAngle, "仰视视角", "low angle view"},
+	{AngleTypeBack, "背面视角", "back view"},
+}
