@@ -58,13 +58,24 @@ func main() {
 		logr.Info("Local storage initialized successfully", "path", cfg.Storage.LocalPath)
 	}
 
+	// TOS storage (optional)
+	var tosStorage *storage.TOSStorage
+	if cfg.Storage.TOS != nil {
+		tosStorage, err = storage.NewTOSStorage(cfg.Storage.TOS, logr)
+		if err != nil {
+			logr.Warnw("Failed to initialize TOS storage", "error", err)
+		} else if tosStorage.IsConfigured() {
+			logr.Info("TOS storage initialized", "bucket", cfg.Storage.TOS.Bucket)
+		}
+	}
+
 	if cfg.App.Debug {
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	router := routes.SetupRouter(cfg, db, logr, localStorage)
+	router := routes.SetupRouter(cfg, db, logr, localStorage, tosStorage)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),

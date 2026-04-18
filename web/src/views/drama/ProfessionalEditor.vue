@@ -867,24 +867,79 @@
                     <div v-if="selectedReferenceMode === 'multiple'" style="margin-top: 10px;">
                       <div style="font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 500;">多模态参考</div>
                       <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <!-- 参考视频 -->
                         <div style="flex: 1; min-width: 200px;">
-                          <div style="font-size: 11px; color: #999; margin-bottom: 2px;">参考视频URL (最多3个)</div>
-                          <div v-for="(_, idx) in seedanceRefVideoURLs" :key="'v'+idx" style="display: flex; gap: 4px; margin-bottom: 4px;">
-                            <el-input v-model="seedanceRefVideoURLs[idx]" size="small" placeholder="视频URL" style="flex:1" />
+                          <div style="font-size: 11px; color: #999; margin-bottom: 4px;">参考视频 (最多3个)</div>
+                          <div v-for="(url, idx) in seedanceRefVideoURLs" :key="'v'+idx" class="ref-media-item">
+                            <video v-if="url" :src="getMediaPreviewUrl(url)" class="ref-media-thumb" />
+                            <div v-else class="ref-media-icon">🎬</div>
+                            <div class="ref-media-name">{{ getMediaName(url) }}</div>
                             <el-button size="small" @click="seedanceRefVideoURLs.splice(idx, 1)" text type="danger">删除</el-button>
                           </div>
-                          <el-button v-if="seedanceRefVideoURLs.length < 3" size="small" @click="seedanceRefVideoURLs.push('')">+ 添加视频</el-button>
+                          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                            <el-button v-if="seedanceRefVideoURLs.length < 3" size="small" @click="showVideoSelectDialog = true">从已有视频选择</el-button>
+                            <el-button v-if="seedanceRefVideoURLs.length < 3" size="small" @click="triggerUploadFile('video')">上传视频</el-button>
+                            <el-button v-if="seedanceRefVideoURLs.length < 3" size="small" @click="addManualRefUrl('video')">手动输入URL</el-button>
+                          </div>
                         </div>
+                        <!-- 参考音频 -->
                         <div style="flex: 1; min-width: 200px;">
-                          <div style="font-size: 11px; color: #999; margin-bottom: 2px;">参考音频URL (最多3个)</div>
-                          <div v-for="(_, idx) in seedanceRefAudioURLs" :key="'a'+idx" style="display: flex; gap: 4px; margin-bottom: 4px;">
-                            <el-input v-model="seedanceRefAudioURLs[idx]" size="small" placeholder="音频URL" style="flex:1" />
+                          <div style="font-size: 11px; color: #999; margin-bottom: 4px;">参考音频 (最多3个)</div>
+                          <div v-for="(url, idx) in seedanceRefAudioURLs" :key="'a'+idx" class="ref-media-item">
+                            <div class="ref-media-icon">🎵</div>
+                            <div class="ref-media-name">{{ getMediaName(url) }}</div>
                             <el-button size="small" @click="seedanceRefAudioURLs.splice(idx, 1)" text type="danger">删除</el-button>
                           </div>
-                          <el-button v-if="seedanceRefAudioURLs.length < 3" size="small" @click="seedanceRefAudioURLs.push('')">+ 添加音频</el-button>
+                          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                            <el-button v-if="seedanceRefAudioURLs.length < 3" size="small" @click="triggerUploadFile('audio')">上传音频</el-button>
+                            <el-button v-if="seedanceRefAudioURLs.length < 3" size="small" @click="addManualRefUrl('audio')">手动输入URL</el-button>
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    <!-- 视频选择 Dialog -->
+                    <el-dialog v-model="showVideoSelectDialog" title="选择已生成的视频" width="700px" append-to-body>
+                      <div v-if="loadingExistingVideos" style="text-align: center; padding: 20px;">
+                        <el-icon class="is-loading"><Loading /></el-icon> 加载中...
+                      </div>
+                      <div v-else-if="existingVideos.length === 0" style="text-align: center; color: #999; padding: 20px;">
+                        暂无已生成的视频
+                      </div>
+                      <div v-else class="video-select-grid">
+                        <div
+                          v-for="v in existingVideos"
+                          :key="v.id"
+                          class="video-select-card"
+                          :class="{ 'is-selected': seedanceRefVideoURLs.includes(getRefVideoUrl(v)) }"
+                          @click="selectExistingVideo(v)"
+                        >
+                          <div class="video-select-thumb">
+                            <img v-if="v.image_url" :src="getMediaPreviewUrl(v.image_url)" />
+                            <div v-else class="video-select-placeholder">🎬</div>
+                          </div>
+                          <div class="video-select-info">
+                            <div class="video-select-prompt">{{ v.prompt?.substring(0, 40) }}{{ v.prompt?.length > 40 ? '...' : '' }}</div>
+                            <div class="video-select-meta">
+                              <span v-if="v.duration">{{ v.duration }}s</span>
+                              <span>{{ v.status }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <template #footer>
+                        <el-button @click="showVideoSelectDialog = false">关闭</el-button>
+                      </template>
+                    </el-dialog>
+
+                    <!-- 手动输入URL Dialog -->
+                    <el-dialog v-model="showManualUrlDialog" :title="manualUrlType === 'video' ? '输入视频URL' : '输入音频URL'" width="400px" append-to-body>
+                      <el-input v-model="manualUrlInput" :placeholder="manualUrlType === 'video' ? 'https://example.com/video.mp4' : 'https://example.com/audio.mp3'" />
+                      <template #footer>
+                        <el-button @click="showManualUrlDialog = false">取消</el-button>
+                        <el-button type="primary" @click="confirmManualUrl">确认</el-button>
+                      </template>
+                    </el-dialog>
                   </div>
                 </div>
 
@@ -2409,6 +2464,110 @@ const seedanceGenerateAudio = ref(false);
 const seedanceWatermark = ref(false);
 const seedanceRefVideoURLs = ref<string[]>([]);
 const seedanceRefAudioURLs = ref<string[]>([]);
+const showVideoSelectDialog = ref(false);
+const existingVideos = ref<VideoGeneration[]>([]);
+const loadingExistingVideos = ref(false);
+const showManualUrlDialog = ref(false);
+const manualUrlType = ref<'video' | 'audio'>('video');
+const manualUrlInput = ref('');
+
+// 多模态参考：辅助函数
+const getMediaPreviewUrl = (url: string) => {
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `/static/${url}`;
+};
+
+const getMediaName = (url: string) => {
+  if (!url) return '未命名';
+  const parts = url.split('/');
+  const name = parts[parts.length - 1] || parts[parts.length - 2] || '';
+  return name.length > 25 ? name.substring(0, 25) + '...' : name;
+};
+
+const getRefVideoUrl = (v: VideoGeneration): string => {
+  if (v.video_url) return v.video_url;
+  if (v.local_path) return v.local_path;
+  return '';
+};
+
+const selectExistingVideo = (v: VideoGeneration) => {
+  const url = getRefVideoUrl(v);
+  if (!url) return;
+  const idx = seedanceRefVideoURLs.value.indexOf(url);
+  if (idx >= 0) {
+    seedanceRefVideoURLs.value.splice(idx, 1);
+  } else if (seedanceRefVideoURLs.value.length < 3) {
+    seedanceRefVideoURLs.value.push(url);
+  }
+};
+
+const triggerUploadFile = (type: 'video' | 'audio') => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = type === 'video' ? 'video/*' : 'audio/*';
+  input.onchange = async (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const result = type === 'video'
+        ? await dramaAPI.uploadVideo(formData)
+        : await dramaAPI.uploadAudio(formData);
+      const url = (result as any).data?.url || (result as any).url;
+      if (url) {
+        if (type === 'video') {
+          seedanceRefVideoURLs.value.push(url);
+        } else {
+          seedanceRefAudioURLs.value.push(url);
+        }
+        ElMessage.success('上传成功');
+      }
+    } catch (err: any) {
+      ElMessage.error('上传失败: ' + (err.message || '未知错误'));
+    }
+  };
+  input.click();
+};
+
+const addManualRefUrl = (type: 'video' | 'audio') => {
+  manualUrlType.value = type;
+  manualUrlInput.value = '';
+  showManualUrlDialog.value = true;
+};
+
+const confirmManualUrl = () => {
+  const url = manualUrlInput.value.trim();
+  if (!url) return;
+  if (manualUrlType.value === 'video') {
+    seedanceRefVideoURLs.value.push(url);
+  } else {
+    seedanceRefAudioURLs.value.push(url);
+  }
+  showManualUrlDialog.value = false;
+};
+
+// Watch dialog open to load videos
+watch(showVideoSelectDialog, async (val) => {
+  if (val) {
+    loadingExistingVideos.value = true;
+    try {
+      const result = await videoAPI.listVideos({
+        drama_id: dramaId.toString(),
+        status: 'completed',
+        page: 1,
+        page_size: 50,
+      });
+      existingVideos.value = (result as any).items || [];
+    } catch (err) {
+      console.error('Failed to load videos', err);
+    } finally {
+      loadingExistingVideos.value = false;
+    }
+  }
+});
 const videoAssets = ref<Asset[]>([]);
 const loadingVideos = ref(false);
 const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
@@ -7173,5 +7332,107 @@ onBeforeUnmount(() => {
   max-width: 100%;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 多模态参考媒体 */
+.ref-media-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border-primary, #e4e7ed);
+}
+.ref-media-thumb {
+  width: 48px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #000;
+}
+.ref-media-icon {
+  width: 48px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 4px;
+  font-size: 16px;
+}
+.ref-media-name {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-secondary, #909399);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 视频选择网格 */
+.video-select-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.video-select-card {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid var(--border-primary, #e4e7ed);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.video-select-card:hover {
+  border-color: var(--el-color-primary-light-3, #a0cfff);
+}
+.video-select-card.is-selected {
+  border-color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+.video-select-thumb {
+  width: 64px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #000;
+}
+.video-select-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.video-select-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+.video-select-info {
+  flex: 1;
+  min-width: 0;
+}
+.video-select-prompt {
+  font-size: 12px;
+  color: var(--text-primary, #303133);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-select-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary, #909399);
+  display: flex;
+  gap: 8px;
 }
 </style>

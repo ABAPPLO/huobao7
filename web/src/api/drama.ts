@@ -178,5 +178,13 @@ export const dramaAPI = {
 
   deleteStoryboard(storyboardId: number) {
     return request.delete(`/storyboards/${storyboardId}`)
+  },
+
+  uploadVideo(formData: FormData) {
+    return request.post<{ url: string; local_path: string; filename: string; size: number }>('/upload/video', formData)
+  },
+
+  uploadAudio(formData: FormData) {
+    return request.post<{ url: string; local_path: string; filename: string; size: number }>('/upload/audio', formData)
   }
 }

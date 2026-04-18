@@ -22,6 +22,13 @@ storage:
   type: "local"
   local_path: "./data/storage"
   base_url: "http://localhost:5678/static"
+  # tos:
+  #   access_key: ""
+  #   secret_key: ""
+  #   endpoint: "tos-cn-beijing.volces.com"
+  #   region: "cn-beijing"
+  #   bucket: ""
+  #   public_url: ""
 
 ai:
   default_text_provider: "openai"

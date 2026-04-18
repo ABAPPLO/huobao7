@@ -142,3 +142,99 @@ func (h *UploadHandler) UploadCharacterImage(c *gin.Context) {
 		"size":       header.Size,
 	})
 }
+
+
+// UploadVideo 上传视频文件
+func (h *UploadHandler) UploadVideo(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "请选择文件")
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	allowedTypes := map[string]bool{
+		"video/mp4":        true,
+		"video/webm":       true,
+		"video/quicktime":  true,
+		"video/x-msvideo":  true,
+		"video/x-matroska": true,
+	}
+	if !allowedTypes[contentType] {
+		response.BadRequest(c, "只支持视频格式 (mp4, webm, mov, avi, mkv)")
+		return
+	}
+
+	if header.Size > 100*1024*1024 {
+		response.BadRequest(c, "视频文件大小不能超过100MB")
+		return
+	}
+
+	result, err := h.uploadService.UploadFile(file, header.Filename, contentType, "videos")
+	if err != nil {
+		h.log.Errorw("Failed to upload video", "error", err)
+		response.InternalError(c, "上传失败")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"url":        result.URL,
+		"local_path": result.LocalPath,
+		"filename":   header.Filename,
+		"size":       header.Size,
+	})
+}
+
+// UploadAudio 上传音频文件
+func (h *UploadHandler) UploadAudio(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "请选择文件")
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	allowedTypes := map[string]bool{
+		"audio/mpeg": true,
+		"audio/wav":  true,
+		"audio/x-wav": true,
+		"audio/aac":  true,
+		"audio/mp4":  true,
+		"audio/x-m4a": true,
+		"audio/ogg":  true,
+		"audio/webm": true,
+	}
+	if !allowedTypes[contentType] {
+		response.BadRequest(c, "只支持音频格式 (mp3, wav, aac, m4a, ogg)")
+		return
+	}
+
+	if header.Size > 30*1024*1024 {
+		response.BadRequest(c, "音频文件大小不能超过30MB")
+		return
+	}
+
+	result, err := h.uploadService.UploadFile(file, header.Filename, contentType, "audios")
+	if err != nil {
+		h.log.Errorw("Failed to upload audio", "error", err)
+		response.InternalError(c, "上传失败")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"url":        result.URL,
+		"local_path": result.LocalPath,
+		"filename":   header.Filename,
+		"size":       header.Size,
+	})
+}

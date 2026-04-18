@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStorage interface{}) *gin.Engine {
+func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStorage interface{}, tosStorage *storage2.TOSStorage) *gin.Engine {
 	r := gin.New()
 
 	r.Use(gin.Recovery())
@@ -38,7 +38,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
 	imageGenService := services2.NewImageGenerationService(db, cfg, transferService, localStoragePtr, log)
 	imageGenHandler := handlers2.NewImageGenerationHandler(db, cfg, log, transferService, localStoragePtr)
-	videoGenHandler := handlers2.NewVideoGenerationHandler(db, transferService, localStoragePtr, aiService, log, promptI18n)
+	videoGenHandler := handlers2.NewVideoGenerationHandler(db, transferService, localStoragePtr, aiService, log, promptI18n, tosStorage)
 	videoMergeHandler := handlers2.NewVideoMergeHandler(db, nil, cfg.Storage.LocalPath, cfg.Storage.BaseURL, log)
 	assetHandler := handlers2.NewAssetHandler(db, cfg, log)
 	characterLibraryService := services2.NewCharacterLibraryService(db, log, cfg)
@@ -126,6 +126,8 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		upload := api.Group("/upload")
 		{
 			upload.POST("/image", uploadHandler.UploadImage)
+			upload.POST("/video", uploadHandler.UploadVideo)
+			upload.POST("/audio", uploadHandler.UploadAudio)
 		}
 
 		// 分镜头路由

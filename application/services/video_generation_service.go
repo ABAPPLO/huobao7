@@ -28,9 +28,10 @@ type VideoGenerationService struct {
 	ffmpeg          *ffmpeg.FFmpeg
 	promptI18n      *PromptI18n
 	taskService     *TaskService
+	tosStorage      *storage.TOSStorage
 }
 
-func NewVideoGenerationService(db *gorm.DB, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
+func NewVideoGenerationService(db *gorm.DB, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n, tosStorage *storage.TOSStorage) *VideoGenerationService {
 	service := &VideoGenerationService{
 		db:              db,
 		localStorage:    localStorage,
@@ -40,6 +41,7 @@ func NewVideoGenerationService(db *gorm.DB, transferService *ResourceTransferSer
 		ffmpeg:          ffmpeg.NewFFmpeg(log),
 		promptI18n:      promptI18n,
 		taskService:     NewTaskService(db, log),
+		tosStorage:      tosStorage,
 	}
 
 	go service.RecoverPendingTasks()
@@ -1396,4 +1398,27 @@ func (s *VideoGenerationService) generateSingleKeyframeVideo(req *KeyframeSequen
 	go s.ProcessVideoGeneration(videoGen.ID)
 
 	return videoGen.ID, nil
+}
+// uploadRefURLs uploads reference URLs to TOS if configured, replacing local paths or remote URLs with TOS public URLs
+func (s *VideoGenerationService) uploadRefURLs(urls []string, category string) []string {
+	if s.tosStorage == nil || !s.tosStorage.IsConfigured() || len(urls) == 0 {
+		return urls
+	}
+	result := make([]string, len(urls))
+	for i, u := range urls {
+		var tosURL string
+		var err error
+		if strings.HasPrefix(u, "/") || (!strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://")) {
+			tosURL, err = s.tosStorage.UploadFromPath(u, category)
+		} else {
+			tosURL, err = s.tosStorage.UploadFromURL(u, category)
+		}
+		if err != nil {
+			s.log.Warnw("Failed to upload reference file to TOS, using original URL", "error", err, "url", u)
+			result[i] = u
+		} else {
+			result[i] = tosURL
+		}
+	}
+	return result
 }

@@ -43,10 +43,20 @@ type DatabaseConfig struct {
 	MaxOpen  int    `mapstructure:"max_open"`
 }
 
+type TOSConfig struct {
+	AccessKey string `mapstructure:"access_key"`
+	SecretKey string `mapstructure:"secret_key"`
+	Endpoint  string `mapstructure:"endpoint"`   // e.g. tos-cn-beijing.volces.com
+	Region    string `mapstructure:"region"`     // e.g. cn-beijing
+	Bucket    string `mapstructure:"bucket"`
+	PublicURL string `mapstructure:"public_url"` // 公网访问前缀
+}
+
 type StorageConfig struct {
-	Type      string `mapstructure:"type"`       // local, minio
-	LocalPath string `mapstructure:"local_path"` // 本地存储路径
-	BaseURL   string `mapstructure:"base_url"`   // 访问URL前缀
+	Type      string     `mapstructure:"type"`       // local, minio
+	LocalPath string     `mapstructure:"local_path"` // 本地存储路径
+	BaseURL   string     `mapstructure:"base_url"`   // 访问URL前缀
+	TOS       *TOSConfig `mapstructure:"tos"`        // 火山TOS配置（可选）
 }
 
 type AIConfig struct {
