@@ -68,3 +68,9 @@ build.sh
 .DS_Store
 # Data folder (all content)
 data/
+
+# Local runtime files
+local/
+huobao-drama
+main
+resume
